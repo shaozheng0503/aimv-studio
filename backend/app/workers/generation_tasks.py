@@ -125,7 +125,7 @@ def run_generation_task(self, task_id: int):
                     except OSError:
                         pass
             else:
-                minio_url = output_path  # fallback
+                raise RuntimeError(f"Compose produced no output file (expected {final_path})")
 
             from app.adapters.base import GenerateResult
             result = GenerateResult(file_url=minio_url, metadata={"composed": True, "segments": len(video_paths)})
@@ -182,6 +182,7 @@ def run_full_pipeline(project_id: int):
 
     db = _get_sync_session()
     shot_router = ShotRouter()
+    project = None
 
     try:
         project = db.query(Project).filter(Project.id == project_id).one()
@@ -383,11 +384,12 @@ def run_full_pipeline(project_id: int):
 
     except Exception as pipeline_err:
         notify_progress(project_id, 0, "pipeline", "failed", {"error": str(pipeline_err)})
-        try:
-            project.status = "failed"
-            db.commit()
-        except Exception:
-            pass
+        if project is not None:
+            try:
+                project.status = "failed"
+                db.commit()
+            except Exception:
+                pass
         raise
 
     finally:
