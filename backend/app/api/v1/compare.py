@@ -61,11 +61,15 @@ async def create_comparison(
             },
         )
         db.add(task)
-        await db.commit()
-        await db.refresh(task)
+        await db.flush()  # assign task.id without committing
         tasks.append(task)
 
-        from app.workers.generation_tasks import run_generation_task
+    await db.commit()  # single batch commit
+    for task in tasks:
+        await db.refresh(task)
+
+    from app.workers.generation_tasks import run_generation_task
+    for task in tasks:
         run_generation_task.delay(task.id)
 
     return CompareResponse(compare_group_id=group_id, tasks=tasks)
@@ -79,16 +83,17 @@ async def get_comparison(
     db: AsyncSession = Depends(get_db),
 ):
     """Get results for a comparison group."""
+    from sqlalchemy import cast, String
     result = await db.execute(
         select(Task)
         .join(Project)
         .where(
             Task.project_id == project_id,
             Project.user_id == user.id,
+            cast(Task.params["compare_group"], String) == f'"{group_id}"',
         )
     )
-    all_tasks = result.scalars().all()
-    group_tasks = [t for t in all_tasks if (t.params or {}).get("compare_group") == group_id]
+    group_tasks = result.scalars().all()
 
     return {
         "group_id": group_id,

@@ -70,6 +70,7 @@ class GenerationService:
         # Generate with verify-retry loop
         best_result = None
         best_score = 0.0
+        result = None
         char_desc = character_bank.get_prompt_suffix(character_name) if character_bank and character_name else ""
 
         for attempt in range(MAX_RETRIES):
@@ -119,6 +120,7 @@ class GenerationService:
 
         best_result = None
         best_score = 0.0
+        result = None
         char_desc = character_bank.get_prompt_suffix(character_name) if character_bank and character_name else ""
 
         for attempt in range(MAX_RETRIES):

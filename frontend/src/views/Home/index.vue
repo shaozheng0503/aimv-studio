@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useLangStore } from '@/stores/lang'
+import { storeToRefs } from 'pinia'
 
 const router = useRouter()
 
 // ─── i18n ────────────────────────────────────────────────────────────────────
-const lang = ref<'en' | 'zh'>('en')
+const langStore = useLangStore()
+const { lang } = storeToRefs(langStore)
 
 const i18n = {
   en: {
@@ -140,8 +143,7 @@ type LangKey = keyof typeof i18n.en
 const t = computed(() => i18n[lang.value] as Record<LangKey, string>)
 
 function toggleLang() {
-  lang.value = lang.value === 'en' ? 'zh' : 'en'
-  localStorage.setItem('lang', lang.value)
+  langStore.setLang(lang.value === 'en' ? 'zh' : 'en')
   document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
 }
 

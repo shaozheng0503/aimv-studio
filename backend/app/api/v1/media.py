@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 import tempfile
 import shutil
 from pathlib import Path
@@ -40,18 +41,21 @@ async def upload_audio(
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
-    # Upload to object storage
-    content_type = file.content_type or "audio/mpeg"
-    file_url = upload_file(tmp_path, content_type)
+    try:
+        # Run music analysis first (CPU-bound, offload to thread pool)
+        from app.core.music_analyzer import MusicAnalyzer
 
-    # Run music analysis
-    from app.core.music_analyzer import MusicAnalyzer
-    analyzer = MusicAnalyzer(tmp_path)
-    analysis = analyzer.analyze()
+        def _analyze(path: str):
+            analyzer = MusicAnalyzer(path)
+            return analyzer.analyze()
 
-    # Optionally separate vocals (slow, skip if not needed for now)
-    # analyzer.separate_vocals()
-    # analyzer.transcribe_lyrics()
+        analysis = await asyncio.to_thread(_analyze, tmp_path)
+
+        # Upload to object storage after analysis succeeds
+        content_type = file.content_type or "audio/mpeg"
+        file_url = upload_file(tmp_path, content_type)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
     # Store media record
     media = Media(
@@ -70,9 +74,6 @@ async def upload_audio(
 
     await db.commit()
     await db.refresh(media)
-
-    # Cleanup temp file
-    Path(tmp_path).unlink(missing_ok=True)
 
     return {
         "media_id": media.id,

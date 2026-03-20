@@ -92,35 +92,42 @@ def run_generation_task(self, task_id: int):
                 model_name=task.model_name or "acestep",
                 params=params,
             ))
-            # Normalize to -14 LUFS after generation (streaming platform standard)
-            if result.file_url and result.file_url.startswith("/"):
-                from app.services.compose_service import ComposeService
-                normalized_path = result.file_url.replace(".mp3", "_norm.aac").replace(".wav", "_norm.aac")
-                try:
-                    ComposeService().normalize_loudness(result.file_url, normalized_path)
-                    result.file_url = normalized_path
-                    result.metadata["loudness_normalized"] = True
-                    result.metadata["target_lufs"] = -14.0
-                except Exception:
-                    result.metadata["loudness_normalized"] = False
+            # Loudness normalization (-14 LUFS) happens during compose (merge_audio_video)
 
         elif task.type == "compose":
             from app.services.compose_service import ComposeService
+            from app.utils.storage import upload_file
+            import os
             compose = ComposeService()
             video_paths = params.get("video_paths", [])
             audio_path = params.get("audio_path", "")
             output_path = params.get("output_path", f"/tmp/mv_{project.id}.mp4")
+            concat_path = f"/tmp/concat_{project.id}.mp4"
 
             if video_paths:
-                concat_path = f"/tmp/concat_{project.id}.mp4"
                 compose.concat_videos(video_paths, concat_path)
                 if audio_path:
                     compose.merge_audio_video(concat_path, audio_path, output_path)
                 else:
                     output_path = concat_path
 
+            # Upload composed video to MinIO for persistent access
+            final_path = output_path if os.path.exists(output_path) else concat_path
+            if os.path.exists(final_path):
+                notify_progress(project.id, task.id, "compose", "uploading")
+                minio_url = upload_file(final_path, "video/mp4")
+                # Clean up temp files
+                for p in {output_path, concat_path}:
+                    try:
+                        if os.path.exists(p):
+                            os.unlink(p)
+                    except OSError:
+                        pass
+            else:
+                minio_url = output_path  # fallback
+
             from app.adapters.base import GenerateResult
-            result = GenerateResult(file_url=output_path)
+            result = GenerateResult(file_url=minio_url, metadata={"composed": True, "segments": len(video_paths)})
 
         else:
             raise ValueError(f"Unknown task type: {task.type}")
@@ -186,33 +193,50 @@ def run_full_pipeline(project_id: int):
         notify_progress(project_id, 0, "pipeline", "started", {"total_segments": len(storyboard)})
 
         # --- Phase 1: Keyframe images + music (parallel) ---
-        image_task_ids = []
+        model_prefs = project.model_preferences or {}
+        image_model = model_prefs.get("image", "z-image")
+
+        # Batch-add all image tasks + music task, then single commit
+        image_tasks = []
         for segment in storyboard:
             task = Task(
                 project_id=project.id,
                 type="image",
-                model_name="z-image",
+                model_name=image_model,
                 params={
                     "prompt": segment.get("image_prompt", segment.get("description", "")),
                     "character_name": (segment.get("characters") or [""])[0],
                 },
             )
             db.add(task)
-            db.commit()
-            db.refresh(task)
-            image_task_ids.append(task.id)
-            run_generation_task.delay(task.id)
+            db.flush()  # get task.id without committing
+            image_tasks.append(task)
 
-        music_params = project.style_config.get("music_plan", {}) if project.style_config else {}
+        style_cfg = project.style_config or {}
+        music_params = style_cfg.get("music_plan", {})
+        # User model preference > crew recommendation > default
+        music_model_name = (
+            model_prefs.get("music")
+            or music_params.get("model_recommendation")
+            or "acestep"
+        )
         music_task = Task(
             project_id=project.id,
             type="music",
-            model_name=music_params.get("model_recommendation", "acestep"),
-            params={"prompt": music_params.get("music_prompt", "background music for MV")},
+            model_name=music_model_name,
+            params={"prompt": music_params.get("music_prompt", "cinematic background music for music video")},
         )
         db.add(music_task)
-        db.commit()
+        db.flush()
+
+        db.commit()  # single commit for all Phase 1 tasks
+        for task in image_tasks:
+            db.refresh(task)
         db.refresh(music_task)
+
+        image_task_ids = [t.id for t in image_tasks]
+        for task in image_tasks:
+            run_generation_task.delay(task.id)
         run_generation_task.delay(music_task.id)
 
         # --- Phase 2: Wait for images to complete, then generate videos ---
@@ -249,10 +273,13 @@ def run_full_pipeline(project_id: int):
             if not first_frame and i < len(image_media):
                 first_frame = image_media[i].file_url
 
+            # User model preference overrides AI routing
+            video_model = model_prefs.get("video") or plan.video_model
+
             video_task = Task(
                 project_id=project.id,
                 type="video",
-                model_name=plan.video_model,
+                model_name=video_model,
                 params={
                     "prompt": plan.prompt,
                     "character_name": plan.character_name,
@@ -266,23 +293,33 @@ def run_full_pipeline(project_id: int):
             db.commit()
             db.refresh(video_task)
 
+            pct = int((i / len(shot_plans)) * 100)
             notify_progress(project_id, video_task.id, "video", "running", {
                 "segment": i + 1,
                 "total": len(shot_plans),
+                "pct": pct,
                 "label": plan.label,
                 "model": plan.video_model,
             })
 
             # Run synchronously (frame-chaining requires sequential execution)
-            run_generation_task(video_task.id)
+            try:
+                run_generation_task(video_task.id)
+            except Exception as vid_err:
+                notify_progress(project_id, video_task.id, "video", "failed", {
+                    "segment": i + 1, "error": str(vid_err)
+                })
 
-            # Extract last frame for next shot
+            # Extract last frame for next shot; skip gracefully on failure
             db.refresh(video_task)
             if video_task.status == "completed":
                 video_media = db.query(Media).filter(Media.task_id == video_task.id).first()
                 if video_media:
                     video_paths.append(video_media.file_url)
-                    prev_last_frame = shot_router.extract_last_frame(video_media.file_url)
+                    last_frame = shot_router.extract_last_frame(video_media.file_url)
+                    if last_frame:
+                        prev_last_frame = last_frame
+                    # else: keep prev_last_frame for next shot continuity
 
         notify_progress(project_id, 0, "pipeline", "videos_done")
 
@@ -312,11 +349,31 @@ def run_full_pipeline(project_id: int):
             db.add(compose_task)
             db.commit()
             db.refresh(compose_task)
+            notify_progress(project_id, compose_task.id, "compose", "running", {
+                "clips": len(video_paths),
+                "has_audio": bool(audio_media),
+            })
             run_generation_task(compose_task.id)
+        else:
+            notify_progress(project_id, 0, "pipeline", "warning", {
+                "message": "No video clips were generated. Check individual task errors."
+            })
 
+        notify_progress(project_id, 0, "pipeline", "completed", {
+            "video_count": len(video_paths),
+            "has_audio": bool(audio_media),
+        })
         project.status = "done"
         db.commit()
-        notify_progress(project_id, 0, "pipeline", "completed")
+
+    except Exception as pipeline_err:
+        notify_progress(project_id, 0, "pipeline", "failed", {"error": str(pipeline_err)})
+        try:
+            project.status = "failed"
+            db.commit()
+        except Exception:
+            pass
+        raise
 
     finally:
         db.close()

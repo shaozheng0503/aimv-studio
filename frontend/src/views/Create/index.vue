@@ -4,15 +4,17 @@ import { useRoute } from 'vue-router'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
 import ComparePanel from '@/components/ComparePanel.vue'
+import { useLangStore } from '@/stores/lang'
 
 const route = useRoute()
+const { t } = useLangStore()
 const projectId = ref<number | null>(null)
 
 // Chat state
 const chatInput = ref('')
 const chatLoading = ref(false)
 const messages = ref<{ role: string; content: string }[]>([
-  { role: 'assistant', content: 'Hi! I\'m your AI director. Describe the music video you want to create — style, mood, story, anything!' },
+  { role: 'assistant', content: '你好！我是你的 AI 导演。告诉我你想创作的 MV 风格、情绪、故事……' },
 ])
 const chatMessagesEl = ref<HTMLElement | null>(null)
 
@@ -27,12 +29,13 @@ const previewUrl = ref('')
 const showCompare = ref(false)
 
 // Progress state from WebSocket
-const progress = ref<Record<string, string>>({
+const progress = ref<Record<string, any>>({
   image: 'pending',
   music: 'pending',
   video: 'pending',
   compose: 'pending',
 })
+const videoProgress = ref({ segment: 0, total: 0, pct: 0 })
 let ws: WebSocket | null = null
 
 onMounted(async () => {
@@ -56,6 +59,10 @@ async function loadProject() {
     visualStyle.value = p.visual_style || ''
     mood.value = p.mood || ''
     storyboard.value = p.storyboard || []
+    // Restore model preferences
+    if (p.model_preferences?.video) videoModel.value = p.model_preferences.video
+    if (p.model_preferences?.music) musicModel.value = p.model_preferences.music
+    // Restore chat history (requires ProjectResponse to include chat_history)
     if (p.chat_history?.length) {
       messages.value = p.chat_history
     }
@@ -64,17 +71,37 @@ async function loadProject() {
 
 function connectWebSocket() {
   if (!projectId.value) return
-  ws = new WebSocket(`ws://localhost:8000/ws/projects/${projectId.value}/progress`)
+  const wsBase = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws')
+  ws = new WebSocket(`${wsBase}/ws/projects/${projectId.value}/progress`)
   ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    progress.value[data.type] = data.status
-    if (data.type === 'pipeline' && data.status === 'completed') {
-      generating.value = false
-      ElMessage.success('MV generation completed!')
-      loadProject()
-    }
-    if (data.file_url && data.type === 'compose') {
-      previewUrl.value = data.file_url
+    try {
+      const data = JSON.parse(event.data)
+      progress.value[data.type] = data.status
+
+      // Track per-segment video progress
+      if (data.type === 'video' && data.pct !== undefined) {
+        videoProgress.value = { segment: data.segment || 0, total: data.total || 0, pct: data.pct }
+      }
+
+      if (data.type === 'pipeline' && data.status === 'completed') {
+        generating.value = false
+        videoProgress.value = { segment: 0, total: 0, pct: 100 }
+        ElMessage.success(t('generationComplete'))
+        loadProject()
+      }
+
+      if (data.file_url && data.type === 'compose' && data.status === 'completed') {
+        previewUrl.value = data.file_url
+      }
+    } catch { /* malformed message */ }
+  }
+  ws.onerror = () => {
+    ElMessage.warning(t('connectionLost'))
+  }
+  ws.onclose = () => {
+    // Auto-reconnect if generation is still in progress
+    if (generating.value) {
+      setTimeout(() => connectWebSocket(), 3000)
     }
   }
 }
@@ -102,8 +129,18 @@ async function sendMessage() {
     if (res.data.plan?.storyboard) {
       storyboard.value = res.data.plan.storyboard
     }
+    // Auto-apply extracted intent to sidebar selectors
+    const intent = res.data.intent_extracted
+    if (intent) {
+      if (intent.visual_style && !visualStyle.value) visualStyle.value = intent.visual_style
+      if (intent.mood && !mood.value) mood.value = intent.mood
+      if (intent.music_style && !musicModel.value) musicModel.value = intent.music_style
+      if (intent.ready_to_plan) {
+        ElMessage.info(t('readyToPlan'))
+      }
+    }
   } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: 'Sorry, something went wrong. Please try again.' })
+    messages.value.push({ role: 'assistant', content: t('chatError') })
   } finally {
     chatLoading.value = false
     scrollChat()
@@ -115,14 +152,18 @@ async function generatePlan() {
   chatLoading.value = true
   const lastUserMsg = [...messages.value].reverse().find(m => m.role === 'user')?.content || ''
   try {
-    // Update project settings
+    // Update project settings including model preferences
     await api.put(`/projects/${projectId.value}`, {
       visual_style: visualStyle.value,
       music_style: musicModel.value,
       mood: mood.value,
+      model_preferences: {
+        video: videoModel.value || undefined,
+        music: musicModel.value || undefined,
+      },
     })
     const res = await api.post(`/projects/${projectId.value}/chat`, {
-      message: lastUserMsg || 'Generate a plan based on my preferences',
+      message: lastUserMsg || '根据我的偏好生成创作方案',
       generate_plan: true,
     })
     messages.value.push({ role: 'assistant', content: res.data.content })
@@ -130,7 +171,7 @@ async function generatePlan() {
       storyboard.value = res.data.plan.storyboard
     }
   } catch {
-    ElMessage.error('Failed to generate plan')
+    ElMessage.error(t('generatePlanError'))
   } finally {
     chatLoading.value = false
     scrollChat()
@@ -139,17 +180,17 @@ async function generatePlan() {
 
 async function startGenerating() {
   if (!projectId.value || !storyboard.value.length) {
-    ElMessage.warning('Generate a plan first!')
+    ElMessage.warning(t('planFirst'))
     return
   }
   generating.value = true
   progress.value = { image: 'pending', music: 'pending', video: 'pending', compose: 'pending' }
   try {
     await api.post(`/projects/${projectId.value}/pipeline/start`)
-    ElMessage.info('Generation started! Watch progress on the right panel.')
+    ElMessage.info(t('startSuccess'))
     if (!ws || ws.readyState !== WebSocket.OPEN) connectWebSocket()
   } catch {
-    ElMessage.error('Failed to start generation')
+    ElMessage.error(t('startGenerateError'))
     generating.value = false
   }
 }
@@ -183,13 +224,13 @@ function uploadAudio() {
     formData.append('file', file)
     try {
       const res = await api.post(`/projects/${projectId.value}/upload/audio`, formData)
-      ElMessage.success(`Audio analyzed! BPM: ${res.data.analysis.bpm}`)
+      ElMessage.success(`音频分析完成！BPM: ${res.data.analysis.bpm}`)
       messages.value.push({
         role: 'assistant',
-        content: `Audio uploaded and analyzed!\nBPM: ${res.data.analysis.bpm}\nDuration: ${Math.round(res.data.analysis.duration)}s\nSections: ${res.data.analysis.sections.length} detected`,
+        content: `音频上传并分析完成！\nBPM: ${res.data.analysis.bpm}\n时长: ${Math.round(res.data.analysis.duration)}秒\n检测到 ${res.data.analysis.sections.length} 个段落`,
       })
     } catch {
-      ElMessage.error('Audio upload failed')
+      ElMessage.error(t('uploadAudioError'))
     }
   }
   input.click()
@@ -201,25 +242,25 @@ function uploadAudio() {
     <!-- Chat Panel -->
     <aside class="chat-panel">
       <div class="chat-header">
-        <h3>AI Director</h3>
-        <button class="btn-ghost btn-sm" @click="uploadAudio" title="Upload audio">Upload Audio</button>
+        <h3>{{ t('aiDirector') }}</h3>
+        <button class="btn-ghost btn-sm" @click="uploadAudio" :title="t('uploadAudio')">{{ t('uploadAudio') }}</button>
       </div>
       <div class="chat-messages" ref="chatMessagesEl">
         <div v-for="(msg, i) in messages" :key="i" :class="['msg', msg.role]">
           <div class="msg-bubble">{{ msg.content }}</div>
         </div>
         <div v-if="chatLoading" class="msg assistant">
-          <div class="msg-bubble typing">Thinking...</div>
+          <div class="msg-bubble typing">{{ t('thinking') }}</div>
         </div>
       </div>
       <div class="chat-input-area">
         <input
           v-model="chatInput"
-          placeholder="Describe your MV idea..."
+          :placeholder="t('chatPlaceholder')"
           @keyup.enter="sendMessage"
           :disabled="chatLoading"
         />
-        <button class="btn-primary send-btn" @click="sendMessage" :disabled="chatLoading">Send</button>
+        <button class="btn-primary send-btn" @click="sendMessage" :disabled="chatLoading">{{ t('send') }}</button>
       </div>
     </aside>
 
@@ -228,8 +269,8 @@ function uploadAudio() {
       <div class="preview-area">
         <video v-if="previewUrl" :src="previewUrl" controls class="preview-video"></video>
         <div v-else class="preview-placeholder">
-          <span class="preview-icon">MV Preview</span>
-          <p>Generated content will appear here</p>
+          <span class="preview-icon">{{ t('mvPreview') }}</span>
+          <p>{{ t('previewPlaceholder') }}</p>
         </div>
       </div>
 
@@ -245,7 +286,7 @@ function uploadAudio() {
               :title="`${seg.label}: ${seg.description?.slice(0, 60) || ''}...`"
             >
               <span class="seg-id">{{ i + 1 }}</span>
-              <span class="seg-label">{{ seg.label === 'sing' ? 'Sing' : 'Story' }}</span>
+              <span class="seg-label">{{ seg.label === 'sing' ? t('labelSing') : t('labelStory') }}</span>
             </div>
           </div>
         </div>
@@ -254,13 +295,13 @@ function uploadAudio() {
         </div>
         <div class="timeline-controls">
           <button class="btn-ghost" @click="generatePlan" :disabled="chatLoading">
-            {{ chatLoading ? 'Planning...' : 'Generate Plan' }}
+            {{ chatLoading ? t('generating') : t('generatePlan') }}
           </button>
           <button class="btn-primary" @click="startGenerating" :disabled="generating || !storyboard.length">
-            {{ generating ? 'Generating...' : 'Start Generating' }}
+            {{ generating ? t('generatingMV') : t('startGenerating') }}
           </button>
-          <button class="btn-ghost" @click="showCompare = true">A/B Compare</button>
-          <button class="btn-ghost">Export</button>
+          <button class="btn-ghost" @click="showCompare = true">{{ t('abCompare') }}</button>
+          <button class="btn-ghost" @click="$router.push(`/editor/${projectId}`)">{{ t('export') }}</button>
         </div>
       </div>
     </main>
@@ -271,68 +312,77 @@ function uploadAudio() {
       :project-id="projectId"
       :visible="showCompare"
       @close="showCompare = false"
-      @picked="(id, model) => ElMessage.success(`Picked ${model}`)"
+      @picked="(id, model) => ElMessage.success(`已选择 ${model}`)"
     />
 
     <!-- Properties Panel -->
     <aside class="props-panel">
-      <h3>Properties</h3>
+      <h3>{{ t('properties') }}</h3>
       <div class="prop-group">
-        <label>Visual Style</label>
-        <el-select v-model="visualStyle" placeholder="Select style" style="width: 100%">
-          <el-option label="K-Pop" value="韩娱" />
-          <el-option label="Chinese Classical" value="国风" />
-          <el-option label="Cyberpunk" value="赛博朋克" />
-          <el-option label="Retro Disco" value="复古迪斯科" />
-          <el-option label="Indie Film" value="独立电影" />
-          <el-option label="Urban Cool" value="都市甜酷" />
-          <el-option label="Fantasy" value="幻想童话" />
+        <label>{{ t('visualStyle') }}</label>
+        <el-select v-model="visualStyle" :placeholder="t('autoRouted')" style="width: 100%">
+          <el-option :label="t('styleKpop')" value="韩娱" />
+          <el-option :label="t('styleChinese')" value="国风" />
+          <el-option :label="t('styleCyberpunk')" value="赛博朋克" />
+          <el-option :label="t('styleRetro')" value="复古迪斯科" />
+          <el-option :label="t('styleIndie')" value="独立电影" />
+          <el-option :label="t('styleUrban')" value="都市甜酷" />
+          <el-option :label="t('styleFantasy')" value="幻想童话" />
         </el-select>
       </div>
       <div class="prop-group">
-        <label>Video Model</label>
-        <el-select v-model="videoModel" placeholder="Auto" style="width: 100%">
-          <el-option label="Auto (AI Routed)" value="" />
+        <label>{{ t('videoModel') }}</label>
+        <el-select v-model="videoModel" :placeholder="t('autoRouted')" style="width: 100%">
+          <el-option :label="t('autoRouted')" value="" />
           <el-option label="Seedance 2.0" value="seedance" />
           <el-option label="Veo 3.1" value="veo" />
           <el-option label="Grok Video" value="grok" />
-          <el-option label="Wan 2.2 (Local)" value="wan2.2" />
+          <el-option label="Wan 2.2（本地）" value="wan2.2" />
         </el-select>
       </div>
       <div class="prop-group">
-        <label>Music Model</label>
-        <el-select v-model="musicModel" placeholder="Auto" style="width: 100%">
-          <el-option label="Auto (AI Routed)" value="" />
-          <el-option label="ACEStep 1.5" value="acestep" />
+        <label>{{ t('musicModel') }}</label>
+        <el-select v-model="musicModel" :placeholder="t('autoRouted')" style="width: 100%">
+          <el-option :label="t('autoRouted')" value="" />
+          <el-option label="ACEStep 1.5（开源）" value="acestep" />
           <el-option label="Suno" value="suno" />
           <el-option label="Google Lyria" value="lyria" />
         </el-select>
       </div>
       <div class="prop-group">
-        <label>Mood</label>
-        <el-select v-model="mood" placeholder="Select mood" style="width: 100%">
-          <el-option label="Energetic" value="energetic" />
-          <el-option label="Melancholic" value="melancholic" />
-          <el-option label="Romantic" value="romantic" />
-          <el-option label="Epic" value="epic" />
-          <el-option label="Peaceful" value="peaceful" />
+        <label>{{ t('mood') }}</label>
+        <el-select v-model="mood" :placeholder="t('autoRouted')" style="width: 100%">
+          <el-option :label="t('moodEnergetic')" value="energetic" />
+          <el-option :label="t('moodMelancholic')" value="melancholic" />
+          <el-option :label="t('moodRomantic')" value="romantic" />
+          <el-option :label="t('moodEpic')" value="epic" />
+          <el-option :label="t('moodPeaceful')" value="peaceful" />
         </el-select>
       </div>
 
       <div class="generation-status">
-        <h4>Generation Status</h4>
+        <h4>{{ t('generationStatus') }}</h4>
         <div class="status-item" v-for="type in ['image', 'music', 'video', 'compose']" :key="type">
-          <span :class="['badge', statusBadge(progress[type])]">{{ progress[type] }}</span>
-          <span>{{ type.charAt(0).toUpperCase() + type.slice(1) }}</span>
+          <span :class="['badge', statusBadge(progress[type])]">{{ { pending:'等待', running:'运行中', completed:'完成', failed:'失败', uploading:'上传中' }[progress[type]] || progress[type] }}</span>
+          <span>{{ { image:'图片', music:'音乐', video:'视频', compose:'合成' }[type] }}</span>
+          <span v-if="type === 'video' && videoProgress.total > 0" class="seg-counter">
+            {{ videoProgress.segment }}/{{ videoProgress.total }}
+          </span>
+        </div>
+        <div v-if="generating && videoProgress.total > 0" class="progress-bar-wrap">
+          <div class="progress-bar" :style="{ width: videoProgress.pct + '%' }"></div>
+          <span class="progress-label">{{ videoProgress.pct }}%</span>
         </div>
       </div>
 
       <div v-if="storyboard.length" class="storyboard-summary">
-        <h4>Storyboard</h4>
+        <h4>{{ t('storyboard') }}（{{ storyboard.length }} 段）</h4>
         <div class="seg-list">
           <div v-for="(seg, i) in storyboard" :key="i" class="seg-item">
             <span class="seg-num">#{{ i + 1 }}</span>
-            <span :class="['badge', seg.label === 'sing' ? 'badge-warning' : 'badge-info']">{{ seg.label }}</span>
+            <span :class="['badge', seg.label === 'sing' ? 'badge-warning' : 'badge-info']">
+              {{ seg.label === 'sing' ? t('labelSing') : t('labelStory') }}
+            </span>
             <span class="seg-desc">{{ (seg.description || '').slice(0, 40) }}</span>
           </div>
         </div>
@@ -424,4 +474,19 @@ function uploadAudio() {
 .seg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .seg-num { color: var(--text-muted); font-weight: 600; min-width: 24px; }
 .seg-desc { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Progress bar */
+.seg-counter { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.progress-bar-wrap {
+  position: relative; height: 6px; background: var(--card);
+  border-radius: 3px; overflow: hidden; margin-top: 8px;
+}
+.progress-bar {
+  height: 100%; background: var(--accent-gradient);
+  border-radius: 3px; transition: width 0.5s ease;
+}
+.progress-label {
+  position: absolute; right: 0; top: -18px;
+  font-size: 11px; color: var(--text-muted);
+}
 </style>

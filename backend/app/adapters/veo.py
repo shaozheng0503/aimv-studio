@@ -1,6 +1,16 @@
+"""Veo 3.1 video generation adapter (Google Generative Language API).
+
+Veo is an async API:
+  POST /v1beta/models/veo-3.1:generateVideo  → returns operation name
+  GET  /v1beta/{operation_name}              → poll until done=true
+"""
+
 import httpx
 from app.adapters.base import BaseModelAdapter, GenerateRequest, GenerateResult
+from app.adapters._poll import poll_until_done
 from app.config import get_settings
+
+_BASE = "https://generativelanguage.googleapis.com"
 
 
 class VeoAdapter(BaseModelAdapter):
@@ -8,18 +18,51 @@ class VeoAdapter(BaseModelAdapter):
 
     async def generate(self, request: GenerateRequest) -> GenerateResult:
         settings = get_settings()
-        async with httpx.AsyncClient(timeout=300) as client:
+        headers = {"x-goog-api-key": settings.veo_api_key}
+
+        body: dict = {
+            "model": "veo-3.1",
+            "prompt": request.prompt,
+            "generationConfig": {
+                "durationSeconds": request.params.get("duration", 8),
+                "aspectRatio": request.params.get("aspect_ratio", "16:9"),
+            },
+        }
+        if request.reference_images:
+            body["image"] = {
+                "bytesBase64Encoded": request.reference_images[0],
+                "mimeType": "image/jpeg",
+            }
+
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1:generateVideo",
-                headers={"x-goog-api-key": settings.veo_api_key},
-                json={
-                    "prompt": request.prompt,
-                    "image": request.reference_images[0] if request.reference_images else None,
-                    "config": {
-                        "duration_seconds": request.params.get("duration", 8),
-                        "aspect_ratio": request.params.get("aspect_ratio", "16:9"),
-                    },
-                },
+                f"{_BASE}/v1beta/models/veo-3.1:generateVideo",
+                headers=headers,
+                json=body,
             )
-            data = resp.json()
-        return GenerateResult(file_url=data.get("video_url", ""), metadata=data)
+            resp.raise_for_status()
+            op = resp.json()
+
+        op_name = op.get("name", "")
+        if not op_name:
+            raise ValueError(f"Veo did not return an operation name: {op}")
+
+        async def _check() -> tuple[bool, str]:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.get(f"{_BASE}/v1beta/{op_name}", headers=headers)
+                r.raise_for_status()
+                data = r.json()
+            if data.get("done"):
+                videos = (
+                    data.get("response", {})
+                    .get("generatedSamples", [{}])
+                )
+                video_url = (videos[0] if videos else {}).get("video", {}).get("uri", "")
+                return True, video_url
+            return False, ""
+
+        video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
+        return GenerateResult(
+            file_url=video_url,
+            metadata={"model": "veo-3.1", "operation": op_name},
+        )

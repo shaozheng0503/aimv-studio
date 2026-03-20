@@ -87,7 +87,9 @@ class ShotRouter:
 
         Returns path to the extracted frame image.
         """
-        output = tempfile.mktemp(suffix=".jpg")
+        import os
+        fd, output = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd)
         try:
             subprocess.run(
                 [
@@ -103,6 +105,10 @@ class ShotRouter:
             )
             return output
         except subprocess.CalledProcessError:
+            try:
+                os.unlink(output)
+            except OSError:
+                pass
             return ""
 
     def plan_all_shots(

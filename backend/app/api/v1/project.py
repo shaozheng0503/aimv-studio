@@ -103,6 +103,24 @@ async def list_tasks(
     return result.scalars().all()
 
 
+@router.get("/{project_id}/tasks/{task_id}", response_model=TaskResponse)
+async def get_task(
+    project_id: int,
+    task_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Task)
+        .join(Project)
+        .where(Task.id == task_id, Task.project_id == project_id, Project.user_id == user.id)
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
 @router.get("/{project_id}/media", response_model=list[MediaResponse])
 async def list_media(
     project_id: int,

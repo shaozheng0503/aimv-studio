@@ -5,23 +5,22 @@ import json
 from typing import AsyncIterator
 from app.config import get_settings
 
-SYSTEM_PROMPT = """You are the AI Director of AIMV, an AI Music Video creation platform.
-You help users plan and create professional music videos.
+SYSTEM_PROMPT = """你是 AIMV 的 AI 导演，帮助用户规划和创作专业音乐视频。
 
-Your capabilities:
-- Understand the user's creative vision (mood, style, story, target audience)
-- Recommend visual styles: K-Pop, Chinese Classical, Cyberpunk, Retro Disco, Indie Film, Urban Cool, Fantasy
-- Recommend video models: Seedance 2.0 (dance), Veo 3.1 (cinematic), Grok Video (stylized), Wan 2.2 (local/custom)
-- Recommend music models: ACEStep 1.5 (open-source instrumental), Suno (vocals+lyrics), Google Lyria (high-fidelity)
-- Design storyboards with shot-by-shot descriptions
-- Create character profiles for visual consistency
+你的能力：
+- 理解用户的创意愿景（情绪、风格、故事、目标受众）
+- 推荐视觉风格：韩娱、国风古典、赛博朋克、复古迪斯科、独立电影、都市甜酷、幻想童话
+- 推荐视频模型：Seedance 2.0（舞蹈）、Veo 3.1（电影感）、Grok Video（风格化）、Wan 2.2（本地/定制）
+- 推荐音乐模型：ACEStep 1.5（开源器乐）、Suno（人声+歌词）、Google Lyria（高保真）
+- 设计包含逐镜描述的分镜方案
+- 创建角色档案以保持视觉一致性
 
-Communication style:
-- Be concise but creative
-- Ask clarifying questions when the user's intent is vague
-- Proactively suggest style combinations
-- When the user is ready, tell them to click "Generate Plan" to create the full production plan
-- Respond in the same language the user uses (Chinese or English)"""
+沟通风格：
+- 简洁但富有创意
+- 用户意图模糊时主动提问
+- 主动建议风格组合
+- 用户准备好后，告知他们点击「生成方案」创建完整制作方案
+- 用用户所用的语言回复（中文或英文）"""
 
 
 class LLMClient:
@@ -57,6 +56,7 @@ class LLMClient:
                     "max_tokens": 2000,
                 },
             )
+            resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
 
@@ -95,6 +95,7 @@ class LLMClient:
                     "contents": contents,
                 },
             )
+            resp.raise_for_status()
             data = resp.json()
             return data["candidates"][0]["content"]["parts"][0]["text"]
 
@@ -127,12 +128,102 @@ class LLMClient:
             contents.append({"role": role, "parts": [{"text": msg["content"]}]})
         return contents
 
+    async def chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> tuple[dict | None, str]:
+        """Call LLM with tool definitions.
+
+        Returns (intent_dict, response_text). Both can be non-empty when the LLM
+        provides a text reply AND calls a tool in the same turn.
+        If intent extraction fails, returns (None, "") so the caller can fall back
+        to a regular llm.chat() call.
+        """
+        if not tools:
+            return None, ""
+        try:
+            if self.settings.openai_api_key:
+                return await self._call_openai_tools(messages, tools)
+            elif self.settings.gemini_api_key:
+                return await self._call_gemini_tools(messages, tools)
+        except Exception:
+            pass
+        return None, ""
+
+    async def _call_openai_tools(
+        self, messages: list[dict], tools: list[dict]
+    ) -> tuple[dict | None, str]:
+        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+                json={
+                    "model": "gpt-4o",
+                    "messages": full_messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "max_tokens": 1000,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            choice = data.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            content = message.get("content") or ""
+            tool_calls = message.get("tool_calls", [])
+            intent = None
+            if tool_calls:
+                args_str = tool_calls[0].get("function", {}).get("arguments", "{}")
+                try:
+                    intent = json.loads(args_str)
+                except json.JSONDecodeError:
+                    pass
+        return intent, content
+
+    async def _call_gemini_tools(
+        self, messages: list[dict], tools: list[dict]
+    ) -> tuple[dict | None, str]:
+        """Gemini function calling — convert OpenAI tool schema to Gemini format."""
+        contents = self._to_gemini_format(messages)
+        fn_decls = []
+        for t in tools:
+            fn = t.get("function", {})
+            fn_decls.append({
+                "name": fn.get("name"),
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters", {}),
+            })
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                params={"key": self.settings.gemini_api_key},
+                json={
+                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "contents": contents,
+                    "tools": [{"function_declarations": fn_decls}],
+                    "tool_config": {"function_calling_config": {"mode": "AUTO"}},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            intent = None
+            text_parts = []
+            for part in parts:
+                if "functionCall" in part:
+                    intent = part["functionCall"].get("args", {})
+                elif "text" in part:
+                    text_parts.append(part["text"])
+        return intent, "".join(text_parts)
+
     def _fallback_response(self, messages: list[dict]) -> str:
         last = messages[-1]["content"] if messages else ""
         return (
-            f"I understand your request: \"{last}\"\n\n"
-            "To enable full AI conversation, please configure an API key:\n"
-            "- Set `OPENAI_API_KEY` for GPT-4o\n"
-            "- Or set `GEMINI_API_KEY` for Gemini 2.5 Flash\n\n"
-            "Meanwhile, you can still set styles and generate content using the sidebar controls."
+            f"我理解你的想法：「{last}」\n\n"
+            "要启用完整的 AI 对话，请配置 API Key：\n"
+            "- 设置 `OPENAI_API_KEY` 使用 GPT-4o\n"
+            "- 或设置 `GEMINI_API_KEY` 使用 Gemini 2.5 Flash\n\n"
+            "你可以通过右侧面板手动设置风格并直接生成内容。"
         )

@@ -2,9 +2,11 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useLangStore } from '@/stores/lang'
 
 const router = useRouter()
 const auth = useAuthStore()
+const { t } = useLangStore()
 const isRegister = ref(false)
 const form = ref({ username: '', email: '', password: '' })
 const error = ref('')
@@ -19,7 +21,7 @@ async function submit() {
     }
     router.push('/projects')
   } catch (e: any) {
-    error.value = e.response?.data?.detail || 'Something went wrong'
+    error.value = e.response?.data?.detail || t('loginError')
   }
 }
 </script>
@@ -27,29 +29,29 @@ async function submit() {
 <template>
   <div class="login-page">
     <div class="login-card card">
-      <h2 class="gradient-text">{{ isRegister ? 'Create Account' : 'Welcome Back' }}</h2>
-      <p class="login-subtitle">{{ isRegister ? 'Join the AI MV revolution' : 'Sign in to continue' }}</p>
+      <h2 class="gradient-text">{{ isRegister ? t('registerTitle') : t('loginTitle') }}</h2>
+      <p class="login-subtitle">{{ isRegister ? t('registerSubtitle') : t('loginSubtitle') }}</p>
 
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="form-group">
-        <input v-model="form.username" placeholder="Username" />
+        <input v-model="form.username" :placeholder="t('username')" />
       </div>
       <div v-if="isRegister" class="form-group">
-        <input v-model="form.email" type="email" placeholder="Email" />
+        <input v-model="form.email" type="email" :placeholder="t('email')" />
       </div>
       <div class="form-group">
-        <input v-model="form.password" type="password" placeholder="Password" @keyup.enter="submit" />
+        <input v-model="form.password" type="password" :placeholder="t('password')" @keyup.enter="submit" />
       </div>
 
       <button class="btn-primary full-width" @click="submit">
-        {{ isRegister ? 'Register' : 'Sign In' }}
+        {{ isRegister ? t('registerBtn') : t('loginBtn') }}
       </button>
 
       <p class="toggle-text">
-        {{ isRegister ? 'Already have an account?' : "Don't have an account?" }}
+        {{ isRegister ? t('toLogin') : t('toRegister') }}
         <a href="#" @click.prevent="isRegister = !isRegister">
-          {{ isRegister ? 'Sign In' : 'Register' }}
+          {{ isRegister ? t('loginBtn') : t('registerBtn') }}
         </a>
       </p>
     </div>

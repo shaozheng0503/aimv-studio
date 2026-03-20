@@ -1,7 +1,7 @@
 """Gallery API — Public showcase of published MV projects."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -63,9 +63,10 @@ async def list_gallery(
     db: AsyncSession = Depends(get_db),
 ):
     """Browse published projects (public, no auth required)."""
+    # Use cast to text + equality to avoid NULL/type issues with JSON boolean accessor
     query = select(Project).where(
         Project.status == "done",
-        Project.style_config["published"].as_boolean() == True,
+        cast(Project.style_config["published"], String) == "true",
     )
     if style:
         query = query.where(Project.visual_style == style)
@@ -78,28 +79,41 @@ async def list_gallery(
     result = await db.execute(query)
     projects = result.scalars().all()
 
-    items = []
-    for p in projects:
-        # Get thumbnail (first image) and final video
-        thumb_q = await db.execute(
-            select(Media).where(Media.project_id == p.id, Media.type == "image").limit(1)
-        )
-        thumb = thumb_q.scalar_one_or_none()
-        video_q = await db.execute(
-            select(Media).where(Media.project_id == p.id, Media.type == "final_video").order_by(desc(Media.created_at)).limit(1)
-        )
-        video = video_q.scalar_one_or_none()
+    # Batch-fetch thumbnails and final videos in 2 queries (avoids N+1)
+    project_ids = [p.id for p in projects]
+    thumbs_q = await db.execute(
+        select(Media)
+        .where(Media.project_id.in_(project_ids), Media.type == "image")
+        .order_by(Media.project_id, Media.id)
+    )
+    thumbs: dict[int, str] = {}
+    for m in thumbs_q.scalars().all():
+        if m.project_id not in thumbs:
+            thumbs[m.project_id] = m.file_url
 
-        items.append({
+    videos_q = await db.execute(
+        select(Media)
+        .where(Media.project_id.in_(project_ids), Media.type == "final_video")
+        .order_by(Media.project_id, desc(Media.created_at))
+    )
+    vids: dict[int, str] = {}
+    for m in videos_q.scalars().all():
+        if m.project_id not in vids:
+            vids[m.project_id] = m.file_url
+
+    items = [
+        {
             "id": p.id,
             "title": p.title,
             "visual_style": p.visual_style,
             "mood": p.mood,
-            "thumbnail_url": thumb.file_url if thumb else None,
-            "video_url": video.file_url if video else None,
+            "thumbnail_url": thumbs.get(p.id),
+            "video_url": vids.get(p.id),
             "likes": (p.style_config or {}).get("likes", 0),
             "created_at": p.created_at.isoformat(),
-        })
+        }
+        for p in projects
+    ]
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -110,7 +124,9 @@ async def like_project(
     db: AsyncSession = Depends(get_db),
 ):
     """Like a published project (no auth required for simplicity)."""
-    result = await db.execute(select(Project).where(Project.id == project_id))
+    result = await db.execute(
+        select(Project).where(Project.id == project_id).with_for_update()
+    )
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

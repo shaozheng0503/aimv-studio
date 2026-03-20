@@ -1,6 +1,9 @@
 """Celery tasks for export / re-encoding."""
 
+import os
+import tempfile
 from app.workers.celery_app import celery_app
+from app.workers.generation_tasks import _get_sync_session  # reuse shared engine
 
 
 @celery_app.task(bind=True, max_retries=2)
@@ -10,15 +13,8 @@ def run_export_task(self, task_id: int):
     from app.utils.storage import upload_file
     from app.utils.progress import notify_progress
 
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from app.config import get_settings
-
-    settings = get_settings()
-    sync_url = settings.database_url.replace("+asyncpg", "+psycopg2").replace("postgresql+asyncpg", "postgresql")
-    engine = create_engine(sync_url)
-    Session = sessionmaker(bind=engine)
-    db = Session()
+    db = _get_sync_session()
+    tmp_files: list[str] = []  # track all temp files for cleanup
 
     try:
         task = db.query(Task).filter(Task.id == task_id).one()
@@ -30,6 +26,7 @@ def run_export_task(self, task_id: int):
         source = params["source_url"]
         platform = params["platform"]
         output_path = params["output_path"]
+        tmp_files.append(output_path)
 
         compose = ComposeService()
 
@@ -38,21 +35,25 @@ def run_export_task(self, task_id: int):
 
         # Step 2: Burn subtitles if lyrics SRT is available
         if params.get("srt_content"):
-            import tempfile
-            srt_file = tempfile.mktemp(suffix=".srt")
-            with open(srt_file, "w", encoding="utf-8") as f:
-                f.write(params["srt_content"])
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".srt", encoding="utf-8", delete=False
+            ) as srt_f:
+                srt_f.write(params["srt_content"])
+                srt_file = srt_f.name
+            tmp_files.append(srt_file)
             sub_path = output_path.replace(".mp4", "_sub.mp4")
+            tmp_files.append(sub_path)
             compose.add_subtitles(output_path, srt_file, sub_path)
             output_path = sub_path
 
         # Step 3: Add watermark if requested
         if params.get("add_watermark"):
             wm_path = output_path.replace(".mp4", "_wm.mp4")
+            tmp_files.append(wm_path)
             compose.add_watermark(output_path, params.get("watermark_text", "AIMV"), wm_path)
             output_path = wm_path
 
-        # Step 3: Upload to storage
+        # Step 4: Upload to storage
         file_url = upload_file(output_path, "video/mp4")
 
         # Store result
@@ -61,7 +62,7 @@ def run_export_task(self, task_id: int):
         media = Media(
             project_id=task.project_id,
             task_id=task.id,
-            type="final_video",
+            type="export_video",
             file_url=file_url,
             metadata_json={"platform": platform, "export": True},
         )
@@ -77,3 +78,10 @@ def run_export_task(self, task_id: int):
         raise self.retry(exc=e)
     finally:
         db.close()
+        # Clean up all temporary files
+        for path in tmp_files:
+            try:
+                if path and os.path.exists(path):
+                    os.unlink(path)
+            except OSError:
+                pass

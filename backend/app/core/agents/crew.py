@@ -18,7 +18,7 @@ def create_screenwriter() -> Agent:
         role="MV Screenwriter",
         goal=SCREENWRITER_GOAL,
         backstory=SCREENWRITER_BACKSTORY,
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
     )
 
@@ -28,7 +28,7 @@ def create_director() -> Agent:
         role="MV Visual Director",
         goal=DIRECTOR_GOAL,
         backstory=DIRECTOR_BACKSTORY,
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
     )
 
@@ -38,7 +38,7 @@ def create_music_producer() -> Agent:
         role="Music Producer",
         goal=MUSIC_PRODUCER_GOAL,
         backstory=MUSIC_PRODUCER_BACKSTORY,
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
     )
 
@@ -48,7 +48,7 @@ def create_verifier() -> Agent:
         role="Quality Director",
         goal=VERIFIER_GOAL,
         backstory=VERIFIER_BACKSTORY,
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
     )
 
@@ -123,18 +123,28 @@ Output as a JSON array of shot objects.""",
     )
 
     task_music = Task(
-        description=f"""Based on the storyboard and visual direction plan, create a music
-generation plan.
+        description=f"""Based on the storyboard and visual direction plan, produce the COMPLETE
+integrated production plan as a single JSON object. This is the final output that drives
+the entire generation pipeline.
 
 {context_block}
 
-Output a JSON object with:
-- music_prompt: detailed prompt for the AI music model
-- model_recommendation: "acestep" / "suno" / "lyria"
-- needs_vocal: true/false
-- structure_map: how music sections map to storyboard segments
-- sync_points: list of {{time, event}} for beat-visual alignment""",
-        expected_output="JSON with music generation plan",
+Output ONE JSON object with ALL four top-level keys:
+- "character_bank": dict of character profiles from the Screenwriter (copy verbatim)
+- "storyboard": list of segments — merge the Screenwriter's storyboard with the Director's
+  shot objects so each segment has: segment_id, label, start_time, end_time, description,
+  mood, characters, image_prompt, video_prompt, camera_direction, model_recommendation
+- "music_plan": {{
+    "music_prompt": "<detailed prompt>",
+    "model_recommendation": "acestep" | "suno" | "lyria",
+    "needs_vocal": true/false,
+    "structure_map": [...],
+    "sync_points": [{{time, event}}]
+  }}
+- "music_analysis": pass through the music analysis data unchanged (bpm, duration, sections, etc.)
+
+All four keys must be present. Do not omit any.""",
+        expected_output="Single JSON object with character_bank, storyboard, music_plan, and music_analysis",
         agent=music_producer,
         context=[task_screenwrite, task_direct],
     )
@@ -143,7 +153,7 @@ Output a JSON object with:
         agents=[screenwriter, director, music_producer],
         tasks=[task_screenwrite, task_direct, task_music],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
     )
 
 
@@ -185,5 +195,5 @@ Output a JSON object with:
         agents=[verifier],
         tasks=[task_review],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
     )

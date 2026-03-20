@@ -25,7 +25,7 @@ from app.core.middleware import ErrorHandlerMiddleware
 app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

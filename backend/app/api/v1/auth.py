@@ -9,15 +9,6 @@ from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, UserR
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-async def get_current_user(
-    token: str = Depends(lambda: None),  # placeholder, replaced below
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Dependency to extract current user from JWT token."""
-    pass
-
-
-# Proper dependency with header extraction
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 security = HTTPBearer()

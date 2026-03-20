@@ -62,35 +62,72 @@ class VerifierAgent:
     async def _call_llm_judge(
         self, system_prompt: str, image_url: str = "", video_url: str = ""
     ) -> VerifyResult:
-        """Call Gemini or OpenAI to judge content quality."""
+        """Call OpenAI or Gemini to judge content quality."""
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                # Use Gemini for multimodal evaluation
-                content_parts = [{"text": system_prompt}]
-                if image_url:
-                    content_parts.append({
-                        "inline_data": {"mime_type": "image/jpeg", "data": image_url}
-                    })
-
-                resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-                    params={"key": self.settings.gemini_api_key},
-                    json={"contents": [{"parts": content_parts}]},
-                )
-                data = resp.json()
-                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
-
-                import json
-                result = json.loads(text)
-                return VerifyResult(
-                    passed=result.get("passed", False),
-                    score=float(result.get("score", 0)),
-                    explanation=result.get("explanation", ""),
-                    dimensions=result.get("dimensions", {}),
-                )
+                if self.settings.openai_api_key:
+                    return await self._call_openai_judge(client, system_prompt, image_url or video_url)
+                elif self.settings.gemini_api_key:
+                    return await self._call_gemini_judge(client, system_prompt, image_url)
         except Exception as e:
-            # If verification fails, pass by default (don't block generation)
             return VerifyResult(passed=True, score=3.0, explanation=f"Verification skipped: {e}", dimensions={})
+        return VerifyResult(passed=True, score=3.0, explanation="No LLM configured", dimensions={})
+
+    async def _call_openai_judge(
+        self, client: httpx.AsyncClient, system_prompt: str, media_url: str
+    ) -> VerifyResult:
+        """Use GPT-4o Vision — supports arbitrary HTTP URLs directly."""
+        import json
+        content: list[dict] = [{"type": "text", "text": system_prompt}]
+        if media_url:
+            content.append({"type": "image_url", "image_url": {"url": media_url}})
+        resp = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": content}],
+                "response_format": {"type": "json_object"},
+            },
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
+        result = json.loads(text)
+        return VerifyResult(
+            passed=result.get("passed", False),
+            score=float(result.get("score", 0)),
+            explanation=result.get("explanation", ""),
+            dimensions=result.get("dimensions", {}),
+        )
+
+    async def _call_gemini_judge(
+        self, client: httpx.AsyncClient, system_prompt: str, image_url: str
+    ) -> VerifyResult:
+        """Use Gemini Vision — downloads image and sends as base64."""
+        import base64, json
+        content_parts: list[dict] = [{"text": system_prompt}]
+        if image_url:
+            img_resp = await client.get(image_url)
+            img_resp.raise_for_status()
+            b64 = base64.b64encode(img_resp.content).decode()
+            content_parts.append({
+                "inline_data": {"mime_type": "image/jpeg", "data": b64}
+            })
+        resp = await client.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            params={"key": self.settings.gemini_api_key},
+            json={"contents": [{"parts": content_parts}]},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+        result = json.loads(text)
+        return VerifyResult(
+            passed=result.get("passed", False),
+            score=float(result.get("score", 0)),
+            explanation=result.get("explanation", ""),
+            dimensions=result.get("dimensions", {}),
+        )
 
     @staticmethod
     def should_retry(result: VerifyResult) -> bool:

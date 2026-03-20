@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
+import { useLangStore } from '@/stores/lang'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -13,16 +15,54 @@ const exporting = ref(false)
 const exportPlatform = ref('bilibili')
 const addWatermark = ref(false)
 const watermarkText = ref('Made with AIMV')
+const addSubtitles = ref(false)
 const showExportDialog = ref(false)
 
-const platforms = [
-  { value: 'douyin', label: 'Douyin (9:16)', icon: '📱' },
-  { value: 'bilibili', label: 'Bilibili (16:9)', icon: '📺' },
-  { value: 'youtube', label: 'YouTube (16:9 HQ)', icon: '🎬' },
-  { value: 'xiaohongshu', label: 'Xiaohongshu (3:4)', icon: '📕' },
-  { value: 'instagram', label: 'Instagram Reels', icon: '📷' },
-  { value: 'original', label: 'Original', icon: '💾' },
-]
+// Export polling
+let exportPollTimer: ReturnType<typeof setInterval> | null = null
+
+function startExportPolling(taskId: number) {
+  exportPollTimer = setInterval(async () => {
+    try {
+      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
+      const task = res.data
+      if (task.status === 'completed') {
+        stopExportPolling()
+        exporting.value = false
+        const fileUrl = task.result?.file_url
+        if (fileUrl) {
+          ElMessage.success(t.value('exportReady'))
+          window.open(fileUrl)
+        }
+      } else if (task.status === 'failed') {
+        stopExportPolling()
+        exporting.value = false
+        ElMessage.error(task.error_message || t.value('exportFailed'))
+      }
+    } catch { /* ignore transient poll errors */ }
+  }, 3000)
+}
+
+function stopExportPolling() {
+  if (exportPollTimer) {
+    clearInterval(exportPollTimer)
+    exportPollTimer = null
+  }
+}
+
+onUnmounted(() => stopExportPolling())
+
+const langStore = useLangStore()
+const { t } = storeToRefs(langStore)
+
+const platforms = computed(() => [
+  { value: 'douyin', label: t.value('platformDouyin'), icon: '📱' },
+  { value: 'bilibili', label: t.value('platformBilibili'), icon: '📺' },
+  { value: 'youtube', label: t.value('platformYoutube'), icon: '🎬' },
+  { value: 'xiaohongshu', label: t.value('platformXhs'), icon: '📕' },
+  { value: 'instagram', label: t.value('platformInstagram'), icon: '📷' },
+  { value: 'original', label: t.value('platformOriginal'), icon: '💾' },
+])
 
 onMounted(async () => {
   const [pRes, mRes] = await Promise.all([
@@ -31,28 +71,40 @@ onMounted(async () => {
   ])
   project.value = pRes.data
   mediaList.value = mRes.data
+
+  // Derive typed media lists immediately after loading
+  videos.value = mediaList.value.filter((m: any) => m.type === 'video')
+  audios.value = mediaList.value.filter((m: any) => m.type === 'music' || m.type === 'audio')
+  images.value = mediaList.value.filter((m: any) => m.type === 'image')
+
   const final = mediaList.value.find((m: any) => m.type === 'final_video')
   if (final) previewUrl.value = final.file_url
 })
 
 async function doExport() {
   exporting.value = true
+  showExportDialog.value = false
   try {
     const res = await api.post(`/projects/${projectId}/export`, {
       platform: exportPlatform.value,
       add_watermark: addWatermark.value,
       watermark_text: watermarkText.value,
+      add_subtitles: addSubtitles.value,
     })
     if (res.data.download_url) {
-      ElMessage.success('Export ready!')
+      // "original" platform — immediate download URL
+      ElMessage.success(t.value('exportReady'))
       window.open(res.data.download_url)
+      exporting.value = false
+    } else if (res.data.task_id) {
+      // Async re-encode — poll until done
+      ElMessage.info(t.value('exportStarted'))
+      startExportPolling(res.data.task_id)
     } else {
-      ElMessage.info('Export started. You will be notified when ready.')
+      exporting.value = false
     }
-    showExportDialog.value = false
   } catch {
-    ElMessage.error('Export failed')
-  } finally {
+    ElMessage.error(t.value('exportFailed'))
     exporting.value = false
   }
 }
@@ -60,59 +112,54 @@ async function doExport() {
 const videos = ref<any[]>([])
 const audios = ref<any[]>([])
 const images = ref<any[]>([])
-
-onMounted(() => {
-  setTimeout(() => {
-    videos.value = mediaList.value.filter((m: any) => m.type === 'video')
-    audios.value = mediaList.value.filter((m: any) => m.type === 'music' || m.type === 'audio')
-    images.value = mediaList.value.filter((m: any) => m.type === 'image')
-  }, 500)
-})
 </script>
 
 <template>
   <div class="editor-page">
     <header class="editor-header">
-      <h1>{{ project?.title || 'Editor' }}</h1>
+      <h1>{{ project?.title || t('editorTitle') }}</h1>
       <div class="header-actions">
-        <router-link :to="`/create/${projectId}`" class="btn-ghost">Back to Studio</router-link>
-        <button class="btn-primary" @click="showExportDialog = true">Export</button>
+        <span v-if="exporting" class="export-status">
+          <span class="export-spinner"></span>{{ t('exporting') }}
+        </span>
+        <router-link :to="`/create/${projectId}`" class="btn-ghost">{{ t('backToStudio') }}</router-link>
+        <button class="btn-primary" @click="showExportDialog = true" :disabled="exporting">{{ t('export') }}</button>
       </div>
     </header>
 
     <div class="editor-layout">
-      <!-- Preview -->
+      <!-- 预览区 -->
       <div class="editor-preview">
         <video v-if="previewUrl" :src="previewUrl" controls class="main-video" />
-        <div v-else class="no-preview">No final video yet</div>
+        <div v-else class="no-preview">{{ t('noFinalVideo') }}</div>
       </div>
 
-      <!-- Media Library -->
+      <!-- 媒体库 -->
       <aside class="media-library">
-        <h3>Media Library</h3>
+        <h3>{{ t('mediaLibrary') }}</h3>
 
         <div class="media-section" v-if="images.length">
-          <h4>Images ({{ images.length }})</h4>
+          <h4>{{ t('images') }} ({{ images.length }})</h4>
           <div class="media-grid">
             <div v-for="m in images" :key="m.id" class="media-thumb">
-              <img :src="m.file_url" :alt="`Image ${m.id}`" />
+              <img :src="m.file_url" :alt="`图片 ${m.id}`" />
             </div>
           </div>
         </div>
 
         <div class="media-section" v-if="videos.length">
-          <h4>Video Clips ({{ videos.length }})</h4>
+          <h4>{{ t('videoClips') }} ({{ videos.length }})</h4>
           <div class="media-list">
             <div v-for="(m, i) in videos" :key="m.id" class="media-item" @click="previewUrl = m.file_url">
               <span class="item-num">#{{ i + 1 }}</span>
               <span class="item-dur">{{ m.duration ? `${m.duration.toFixed(1)}s` : '' }}</span>
-              <span class="badge badge-success">ready</span>
+              <span class="badge badge-success">就绪</span>
             </div>
           </div>
         </div>
 
         <div class="media-section" v-if="audios.length">
-          <h4>Audio ({{ audios.length }})</h4>
+          <h4>{{ t('audio') }} ({{ audios.length }})</h4>
           <div class="media-list">
             <div v-for="m in audios" :key="m.id" class="media-item">
               <audio :src="m.file_url" controls class="mini-audio" />
@@ -122,8 +169,8 @@ onMounted(() => {
       </aside>
     </div>
 
-    <!-- Export Dialog -->
-    <el-dialog v-model="showExportDialog" title="Export MV" width="480px">
+    <!-- 导出弹窗 -->
+    <el-dialog v-model="showExportDialog" :title="t('exportMV')" width="480px">
       <div class="export-form">
         <div class="platform-grid">
           <div
@@ -137,14 +184,17 @@ onMounted(() => {
           </div>
         </div>
         <div class="export-option">
-          <el-checkbox v-model="addWatermark">Add watermark</el-checkbox>
-          <input v-if="addWatermark" v-model="watermarkText" placeholder="Watermark text" class="wm-input" />
+          <el-checkbox v-model="addSubtitles">{{ t('burnSubtitles') }}</el-checkbox>
+        </div>
+        <div class="export-option">
+          <el-checkbox v-model="addWatermark">{{ t('addWatermark') }}</el-checkbox>
+          <input v-if="addWatermark" v-model="watermarkText" :placeholder="t('watermarkText')" class="wm-input" />
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showExportDialog = false">Cancel</button>
+        <button class="btn-ghost" @click="showExportDialog = false">{{ t('cancel') }}</button>
         <button class="btn-primary" @click="doExport" :disabled="exporting">
-          {{ exporting ? 'Exporting...' : 'Export' }}
+          {{ exporting ? t('exporting') : t('exportBtn') }}
         </button>
       </template>
     </el-dialog>
@@ -158,7 +208,14 @@ onMounted(() => {
   padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--bg-soft);
 }
 .editor-header h1 { font-size: 18px; }
-.header-actions { display: flex; gap: 12px; }
+.header-actions { display: flex; align-items: center; gap: 12px; }
+.export-status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
+.export-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent-strong);
+  animation: spin 0.8s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .editor-layout { display: flex; height: calc(100vh - 60px); }
 .editor-preview { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }

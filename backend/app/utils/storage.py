@@ -5,6 +5,10 @@ from app.config import get_settings
 import uuid
 from pathlib import Path
 
+# Cache whether the bucket has already been confirmed to exist,
+# so each upload doesn't need an extra network round-trip.
+_bucket_ready = False
+
 
 def get_minio_client() -> Minio:
     settings = get_settings()
@@ -17,14 +21,18 @@ def get_minio_client() -> Minio:
 
 
 def ensure_bucket():
+    global _bucket_ready
+    if _bucket_ready:
+        return
     client = get_minio_client()
     settings = get_settings()
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
+    _bucket_ready = True
 
 
 def upload_file(local_path: str, content_type: str = "application/octet-stream") -> str:
-    """Upload a file to MinIO and return its URL."""
+    """Upload a file to MinIO and return its public URL."""
     settings = get_settings()
     client = get_minio_client()
     ensure_bucket()

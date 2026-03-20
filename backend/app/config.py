@@ -4,7 +4,8 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     app_name: str = "AIMV"
-    debug: bool = True
+    debug: bool = False
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # Database
     database_url: str = "postgresql+asyncpg://aimv:aimv@localhost:5432/aimv"

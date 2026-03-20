@@ -72,9 +72,21 @@ class MusicAnalyzer:
     def __init__(self, audio_path: str):
         self.audio_path = Path(audio_path)
         self._analysis = MusicAnalysis()
+        # Cached audio data — loaded once in _load(), reused by all analysis methods
+        self._y = None
+        self._sr: int = 22050
+
+    def _load(self):
+        """Load audio file once; subsequent calls are no-ops."""
+        if self._y is not None:
+            return
+        import librosa
+        self._y, self._sr = librosa.load(str(self.audio_path), sr=22050)
+        self._analysis.duration = float(librosa.get_duration(y=self._y, sr=self._sr))
 
     def analyze(self) -> MusicAnalysis:
-        """Run full analysis pipeline."""
+        """Run full analysis pipeline. Audio is loaded only once."""
+        self._load()
         self._detect_bpm_and_beats()
         self._segment_structure()
         self._extract_energy_curve()
@@ -116,12 +128,11 @@ class MusicAnalyzer:
 
     def _detect_bpm_and_beats(self):
         import librosa
-        y, sr = librosa.load(str(self.audio_path), sr=22050)
-        self._analysis.duration = float(librosa.get_duration(y=y, sr=sr))
+        self._load()
+        y, sr = self._y, self._sr
         tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
         self._analysis.bpm = float(tempo[0]) if hasattr(tempo, '__len__') else float(tempo)
         beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-        # Compute beat strengths from onset envelope
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
         self._analysis.beats = [
             Beat(time=float(t), strength=min(1.0, float(onset_env[f]) / onset_env.max()))
@@ -139,7 +150,8 @@ class MusicAnalyzer:
         import librosa
         import numpy as np
 
-        y, sr = librosa.load(str(self.audio_path), sr=22050)
+        self._load()
+        y, sr = self._y, self._sr
         duration = self._analysis.duration
         hop_length = 512
 
@@ -201,9 +213,9 @@ class MusicAnalyzer:
 
     def _extract_energy_curve(self):
         """Extract per-second energy for mood/intensity visualization."""
-        import librosa
         import numpy as np
-        y, sr = librosa.load(str(self.audio_path), sr=22050)
+        self._load()
+        y, sr = self._y, self._sr
         hop = sr  # 1 second windows
         curve = []
         for i in range(0, len(y), hop):

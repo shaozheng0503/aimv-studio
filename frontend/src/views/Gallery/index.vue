@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '@/api'
+import { useLangStore } from '@/stores/lang'
+
+const { t } = useLangStore()
 
 interface GalleryItem {
   id: number
@@ -21,10 +24,16 @@ const filterStyle = ref('')
 const previewItem = ref<GalleryItem | null>(null)
 
 const styles = ['', '韩娱', '国风', '赛博朋克', '复古迪斯科', '独立电影', '都市甜酷', '幻想童话']
-const styleLabels: Record<string, string> = {
-  '': 'All', '韩娱': 'K-Pop', '国风': 'Classical', '赛博朋克': 'Cyberpunk',
-  '复古迪斯科': 'Disco', '独立电影': 'Indie', '都市甜酷': 'Urban', '幻想童话': 'Fantasy',
-}
+const styleLabels = computed<Record<string, string>>(() => ({
+  '': t.value('allStyles'),
+  '韩娱': t.value('styleKpop'),
+  '国风': t.value('styleChinese'),
+  '赛博朋克': t.value('styleCyberpunk'),
+  '复古迪斯科': t.value('styleRetro'),
+  '独立电影': t.value('styleIndie'),
+  '都市甜酷': t.value('styleUrban'),
+  '幻想童话': t.value('styleFantasy'),
+}))
 
 onMounted(() => fetchGallery())
 
@@ -59,10 +68,10 @@ function changeStyle(s: string) {
         <router-link to="/" class="logo-link">
           <span class="logo-text">AIMV</span>
         </router-link>
-        <h1>Gallery</h1>
+        <h1>{{ t('galleryTitle') }}</h1>
         <nav class="header-nav">
-          <router-link to="/projects">My Projects</router-link>
-          <router-link to="/create">Create</router-link>
+          <router-link to="/projects">{{ t('navProjects') }}</router-link>
+          <router-link to="/create">{{ t('navCreate') }}</router-link>
         </nav>
       </div>
     </header>
@@ -75,16 +84,16 @@ function changeStyle(s: string) {
         :class="['filter-chip', { active: filterStyle === s }]"
         @click="changeStyle(s)"
       >
-        {{ styleLabels[s] }}
+        {{ styleLabels[s] ?? s }}
       </button>
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" class="loading-state">Loading...</div>
+    <div v-if="loading" class="loading-state">{{ t('loading') }}</div>
 
-    <!-- Empty -->
+    <!-- 空状态 -->
     <div v-else-if="!items.length" class="empty-state">
-      No published works yet. Be the first to share!
+      {{ t('noWorks') }}
     </div>
 
     <!-- Grid -->
@@ -101,6 +110,7 @@ function changeStyle(s: string) {
           <span v-if="item.visual_style" class="style-tag badge badge-info">
             {{ styleLabels[item.visual_style] || item.visual_style }}
           </span>
+
         </div>
         <div class="card-body">
           <h3>{{ item.title }}</h3>
@@ -116,9 +126,9 @@ function changeStyle(s: string) {
 
     <!-- Pagination -->
     <div v-if="total > 12" class="pagination">
-      <button class="btn-ghost" :disabled="page <= 1" @click="page--; fetchGallery()">Prev</button>
+      <button class="btn-ghost" :disabled="page <= 1" @click="page--; fetchGallery()">{{ t('prev') }}</button>
       <span class="page-info">{{ page }} / {{ Math.ceil(total / 12) }}</span>
-      <button class="btn-ghost" :disabled="page * 12 >= total" @click="page++; fetchGallery()">Next</button>
+      <button class="btn-ghost" :disabled="page * 12 >= total" @click="page++; fetchGallery()">{{ t('next') }}</button>
     </div>
 
     <!-- Preview Modal -->
@@ -209,11 +219,12 @@ function changeStyle(s: string) {
   background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
 }
-.preview-modal { max-width: 900px; width: 92vw; }
+.preview-modal { max-width: 900px; width: 92vw; position: relative; }
 .preview-close {
-  position: absolute; top: 16px; right: 16px; font-size: 32px;
-  color: var(--text-muted); cursor: pointer; z-index: 10;
+  position: absolute; top: -40px; right: 0; font-size: 32px;
+  color: white; cursor: pointer; z-index: 10; line-height: 1;
 }
+.preview-close:hover { color: var(--accent); }
 .preview-video { width: 100%; border-radius: var(--radius); }
 .preview-info { padding: 16px 0; }
 .preview-info h2 { font-size: 20px; margin-bottom: 8px; }

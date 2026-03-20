@@ -28,6 +28,8 @@ class ProjectResponse(BaseModel):
     style_config: dict | None
     storyboard: list | None
     character_bank: dict | None
+    chat_history: list | None
+    model_preferences: dict | None
     created_at: datetime
     updated_at: datetime
 
@@ -40,6 +42,7 @@ class TaskResponse(BaseModel):
     type: str
     model_name: str | None
     status: str
+    result: dict | None
     quality_score: float | None
     retry_count: int
     error_message: str | None

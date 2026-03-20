@@ -68,5 +68,11 @@ class CharacterBank:
         return {name: asdict(profile) for name, profile in self.characters.items()}
 
     def load(self, data: dict):
+        valid_fields = {f.name for f in CharacterProfile.__dataclass_fields__.values()}  # type: ignore[attr-defined]
         for name, profile_data in data.items():
-            self.characters[name] = CharacterProfile(**profile_data)
+            if not isinstance(profile_data, dict):
+                continue
+            # Strip unknown fields so CrewAI extra output doesn't cause TypeError
+            filtered = {k: v for k, v in profile_data.items() if k in valid_fields}
+            filtered.setdefault("name", name)
+            self.characters[name] = CharacterProfile(**filtered)
