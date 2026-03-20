@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     z_image_api_key: str = ""
     z_image_base_url: str = "http://localhost:7860"
 
+    # Local model server base URLs
+    acestep_base_url: str = "http://localhost:7860"
+    wan_video_base_url: str = "http://localhost:8188"
+
     # Local model paths
     acestep_model_path: str = ""
     wan_model_path: str = ""

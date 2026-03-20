@@ -21,6 +21,7 @@ class LyriaAdapter(BaseModelAdapter):
                     },
                 },
             )
+            resp.raise_for_status()
             data = resp.json()
         return GenerateResult(
             file_url=data.get("audio_url", ""),

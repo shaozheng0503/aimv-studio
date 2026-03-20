@@ -21,5 +21,6 @@ class ZImageAdapter(BaseModelAdapter):
                     "cfg_scale": request.params.get("cfg_scale", 7.0),
                 },
             )
+            resp.raise_for_status()
             data = resp.json()
         return GenerateResult(file_url=data.get("image_url", ""))

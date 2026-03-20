@@ -132,9 +132,9 @@ async function sendMessage() {
     // Auto-apply extracted intent to sidebar selectors
     const intent = res.data.intent_extracted
     if (intent) {
-      if (intent.visual_style && !visualStyle.value) visualStyle.value = intent.visual_style
-      if (intent.mood && !mood.value) mood.value = intent.mood
-      if (intent.music_style && !musicModel.value) musicModel.value = intent.music_style
+      if (intent.visual_style) visualStyle.value = intent.visual_style
+      if (intent.mood) mood.value = intent.mood
+      if (intent.music_style) musicModel.value = intent.music_style
       if (intent.ready_to_plan) {
         ElMessage.info(t('readyToPlan'))
       }

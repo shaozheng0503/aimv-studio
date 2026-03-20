@@ -1,5 +1,6 @@
 import httpx
 from app.adapters.base import BaseModelAdapter, GenerateRequest, GenerateResult
+from app.adapters._poll import poll_until_done
 from app.config import get_settings
 
 
@@ -8,34 +9,51 @@ class SunoAdapter(BaseModelAdapter):
 
     async def generate(self, request: GenerateRequest) -> GenerateResult:
         settings = get_settings()
-        async with httpx.AsyncClient(timeout=300) as client:
-            # Submit generation
+        headers = {"Authorization": f"Bearer {settings.suno_api_key}"}
+
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 "https://api.suno.ai/v1/songs",
-                headers={"Authorization": f"Bearer {settings.suno_api_key}"},
+                headers=headers,
                 json={
                     "prompt": request.prompt,
                     "genre": request.params.get("genre", ""),
                     "lyrics": request.params.get("lyrics", ""),
                 },
             )
+            resp.raise_for_status()
             data = resp.json()
-            song_id = data.get("id", "")
 
-            # Poll for completion
-            import asyncio
-            for _ in range(60):
-                status_resp = await client.get(
-                    f"https://api.suno.ai/v1/songs/{song_id}",
-                    headers={"Authorization": f"Bearer {settings.suno_api_key}"},
+        song_id = data.get("id", "")
+        if not song_id:
+            if data.get("audio_url"):
+                return GenerateResult(
+                    file_url=data["audio_url"],
+                    duration=data.get("duration"),
+                    metadata=data,
                 )
-                status_data = status_resp.json()
-                if status_data.get("status") == "completed":
-                    return GenerateResult(
-                        file_url=status_data.get("audio_url", ""),
-                        duration=status_data.get("duration"),
-                        metadata=status_data,
-                    )
-                await asyncio.sleep(5)
+            raise ValueError(f"Suno did not return a song ID: {data}")
 
-        raise TimeoutError("Suno generation timed out")
+        _final: dict = {}
+
+        async def _check() -> tuple[bool, str]:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.get(
+                    f"https://api.suno.ai/v1/songs/{song_id}", headers=headers
+                )
+                r.raise_for_status()
+                d = r.json()
+            status = d.get("status", "")
+            if status == "completed":
+                _final.update(d)
+                return True, d.get("audio_url", "")
+            if status == "failed":
+                raise RuntimeError(f"Suno generation failed: {d.get('error', 'unknown')}")
+            return False, ""
+
+        audio_url = await poll_until_done(_check, interval=5.0, timeout=300.0)
+        return GenerateResult(
+            file_url=audio_url,
+            duration=_final.get("duration"),
+            metadata=_final,
+        )
