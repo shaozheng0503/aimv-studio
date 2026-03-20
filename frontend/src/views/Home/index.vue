@@ -367,7 +367,9 @@ onUnmounted(() => stopTimer())
       <!-- ─── HERO ───────────────────────────────────────────────────────── -->
       <section class="hero">
         <div class="hero-shell">
-          <div class="hero-media-layer" aria-hidden="true"></div>
+          <div class="hero-media-layer" aria-hidden="true">
+            <video src="/hero.mp4" autoplay muted loop playsinline></video>
+          </div>
           <div class="hero-overlay">
             <div class="hero-content">
               <h1>{{ t.hero_title }}</h1>
@@ -748,19 +750,33 @@ onUnmounted(() => stopTimer())
 
 .hero-media-layer {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 60%, rgba(141,92,255,.4) 0%, transparent 55%),
-    radial-gradient(ellipse 60% 50% at 85% 35%, rgba(243,178,255,.2) 0%, transparent 50%),
-    radial-gradient(ellipse 100% 60% at 50% 110%, rgba(20,5,50,.9) 0%, transparent 55%),
-    #050507;
-  animation: heroPulse 10s ease-in-out infinite alternate;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 0;
+  background-color: #000;
+  height: 30vh;
 }
 
-@keyframes heroPulse {
-  0%   { opacity: 1; }
-  50%  { opacity: 0.85; }
-  100% { opacity: 1; }
+.hero-media-layer video {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  top: 50px;
+  object-fit: contain;
+  object-position: center 20%;
+}
+
+@media (min-width: 600px) {
+  .hero-media-layer {
+    height: 100%;
+  }
+  .hero-media-layer video {
+    top: 0;
+    object-fit: cover;
+    object-position: center;
+  }
 }
 
 .hero-overlay {

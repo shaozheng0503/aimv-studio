@@ -29,6 +29,7 @@ minio_data/
 # Media / Generated files
 /tmp/
 *.mp4
+!frontend/public/hero.mp4
 *.mp3
 *.wav
 *.aac
