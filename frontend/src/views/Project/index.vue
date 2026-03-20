@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
 import { useLangStore } from '@/stores/lang'
 
 const router = useRouter()
-const { t } = useLangStore()
+const langStore = useLangStore()
+const { t } = storeToRefs(langStore)
 const projects = ref<any[]>([])
 const loading = ref(true)
 const editingId = ref<number | null>(null)
 const editingTitle = ref('')
 
-const statusMap: Record<string, string> = {
-  draft: '草稿', planning: '规划中', generating: '生成中',
-  composing: '合成中', done: '已完成', failed: '失败',
-}
+const statusMap = computed<Record<string, string>>(() => ({
+  draft: t.value('statusDraft'),
+  planning: t.value('statusPlanning'),
+  generating: t.value('statusGenerating'),
+  composing: t.value('statusGenerating'),
+  done: t.value('statusDone'),
+  failed: t.value('statusFailed'),
+}))
 
 onMounted(async () => {
   try {
@@ -49,7 +55,7 @@ async function saveTitle(p: any) {
     await api.put(`/projects/${p.id}`, { title })
     p.title = title
   } catch {
-    ElMessage.error('重命名失败')
+    ElMessage.error(t.value('renameError'))
   } finally {
     editingId.value = null
   }
@@ -62,7 +68,7 @@ async function deleteProject(p: any, event: Event) {
     await api.delete(`/projects/${p.id}`)
     projects.value = projects.value.filter(x => x.id !== p.id)
   } catch {
-    ElMessage.error('删除失败')
+    ElMessage.error(t.value('deleteError'))
   }
 }
 </script>

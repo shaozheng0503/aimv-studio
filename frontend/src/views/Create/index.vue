@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
 import ComparePanel from '@/components/ComparePanel.vue'
 import { useLangStore } from '@/stores/lang'
 
 const route = useRoute()
-const { t } = useLangStore()
+const langStore = useLangStore()
+const { t } = storeToRefs(langStore)
 const projectId = ref<number | null>(null)
 
 // Chat state
@@ -86,7 +88,7 @@ function connectWebSocket() {
       if (data.type === 'pipeline' && data.status === 'completed') {
         generating.value = false
         videoProgress.value = { segment: 0, total: 0, pct: 100 }
-        ElMessage.success(t('generationComplete'))
+        ElMessage.success(t.value('generationComplete'))
         loadProject()
       }
 
@@ -96,7 +98,7 @@ function connectWebSocket() {
     } catch { /* malformed message */ }
   }
   ws.onerror = () => {
-    ElMessage.warning(t('connectionLost'))
+    ElMessage.warning(t.value('connectionLost'))
   }
   ws.onclose = () => {
     // Auto-reconnect if generation is still in progress
@@ -136,11 +138,11 @@ async function sendMessage() {
       if (intent.mood) mood.value = intent.mood
       if (intent.music_style) musicModel.value = intent.music_style
       if (intent.ready_to_plan) {
-        ElMessage.info(t('readyToPlan'))
+        ElMessage.info(t.value('readyToPlan'))
       }
     }
   } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: t('chatError') })
+    messages.value.push({ role: 'assistant', content: t.value('chatError') })
   } finally {
     chatLoading.value = false
     scrollChat()
@@ -171,7 +173,7 @@ async function generatePlan() {
       storyboard.value = res.data.plan.storyboard
     }
   } catch {
-    ElMessage.error(t('generatePlanError'))
+    ElMessage.error(t.value('generatePlanError'))
   } finally {
     chatLoading.value = false
     scrollChat()
@@ -180,17 +182,17 @@ async function generatePlan() {
 
 async function startGenerating() {
   if (!projectId.value || !storyboard.value.length) {
-    ElMessage.warning(t('planFirst'))
+    ElMessage.warning(t.value('planFirst'))
     return
   }
   generating.value = true
   progress.value = { image: 'pending', music: 'pending', video: 'pending', compose: 'pending' }
   try {
     await api.post(`/projects/${projectId.value}/pipeline/start`)
-    ElMessage.info(t('startSuccess'))
+    ElMessage.info(t.value('startSuccess'))
     if (!ws || ws.readyState !== WebSocket.OPEN) connectWebSocket()
   } catch {
-    ElMessage.error(t('startGenerateError'))
+    ElMessage.error(t.value('startGenerateError'))
     generating.value = false
   }
 }
@@ -213,6 +215,27 @@ function statusBadge(status: string) {
   return map[status] || 'badge-info'
 }
 
+function statusLabel(status: string): string {
+  const map: Record<string, string> = {
+    pending: t.value('statusPending'),
+    running: t.value('statusRunning'),
+    completed: t.value('statusCompleted'),
+    failed: t.value('statusFailed'),
+    uploading: t.value('statusUploading'),
+  }
+  return map[status] || status
+}
+
+function taskTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    image: t.value('taskImage'),
+    music: t.value('taskMusic'),
+    video: t.value('taskVideo'),
+    compose: t.value('taskCompose'),
+  }
+  return map[type] || type
+}
+
 function uploadAudio() {
   const input = document.createElement('input')
   input.type = 'file'
@@ -230,7 +253,7 @@ function uploadAudio() {
         content: `音频上传并分析完成！\nBPM: ${res.data.analysis.bpm}\n时长: ${Math.round(res.data.analysis.duration)}秒\n检测到 ${res.data.analysis.sections.length} 个段落`,
       })
     } catch {
-      ElMessage.error(t('uploadAudioError'))
+      ElMessage.error(t.value('uploadAudioError'))
     }
   }
   input.click()
@@ -363,8 +386,8 @@ function uploadAudio() {
       <div class="generation-status">
         <h4>{{ t('generationStatus') }}</h4>
         <div class="status-item" v-for="type in ['image', 'music', 'video', 'compose']" :key="type">
-          <span :class="['badge', statusBadge(progress[type])]">{{ { pending:'等待', running:'运行中', completed:'完成', failed:'失败', uploading:'上传中' }[progress[type]] || progress[type] }}</span>
-          <span>{{ { image:'图片', music:'音乐', video:'视频', compose:'合成' }[type] }}</span>
+          <span :class="['badge', statusBadge(progress[type])]">{{ statusLabel(progress[type]) }}</span>
+          <span>{{ taskTypeLabel(type) }}</span>
           <span v-if="type === 'video' && videoProgress.total > 0" class="seg-counter">
             {{ videoProgress.segment }}/{{ videoProgress.total }}
           </span>

@@ -127,12 +127,21 @@ const messages = {
     exportFailed: '导出失败',
     exportStarted: '导出已启动，完成后将通知您',
 
+    // 任务类型标签
+    taskImage: '图片',
+    taskMusic: '音乐',
+    taskVideo: '视频',
+    taskCompose: '合成',
+    statusUploading: '上传中',
+
     // 错误消息
     chatError: '出现错误，请重试',
     generatePlanError: '生成方案失败，请重试',
     startGenerateError: '启动生成失败，请重试',
     uploadAudioError: '音频上传失败',
     connectionLost: '连接中断，正在重连...',
+    renameError: '重命名失败，请重试',
+    deleteError: '删除失败，请重试',
 
     // 画廊
     galleryTitle: '作品广场',
@@ -260,12 +269,21 @@ const messages = {
     exportFailed: 'Export failed',
     exportStarted: 'Export started. You will be notified when ready.',
 
+    // Task type labels
+    taskImage: 'Image',
+    taskMusic: 'Music',
+    taskVideo: 'Video',
+    taskCompose: 'Compose',
+    statusUploading: 'Uploading',
+
     // Error messages
     chatError: 'An error occurred, please try again',
     generatePlanError: 'Failed to generate plan, please try again',
     startGenerateError: 'Failed to start generation, please try again',
     uploadAudioError: 'Audio upload failed',
     connectionLost: 'Connection lost, reconnecting...',
+    renameError: 'Rename failed, please try again',
+    deleteError: 'Delete failed, please try again',
 
     galleryTitle: 'Gallery',
     allStyles: 'All',
