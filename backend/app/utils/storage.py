@@ -1,0 +1,43 @@
+"""Object storage utilities for MinIO / Aliyun OSS."""
+
+from minio import Minio
+from app.config import get_settings
+import uuid
+from pathlib import Path
+
+
+def get_minio_client() -> Minio:
+    settings = get_settings()
+    return Minio(
+        settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_secure,
+    )
+
+
+def ensure_bucket():
+    client = get_minio_client()
+    settings = get_settings()
+    if not client.bucket_exists(settings.minio_bucket):
+        client.make_bucket(settings.minio_bucket)
+
+
+def upload_file(local_path: str, content_type: str = "application/octet-stream") -> str:
+    """Upload a file to MinIO and return its URL."""
+    settings = get_settings()
+    client = get_minio_client()
+    ensure_bucket()
+
+    ext = Path(local_path).suffix
+    object_name = f"{uuid.uuid4().hex}{ext}"
+
+    client.fput_object(
+        settings.minio_bucket,
+        object_name,
+        local_path,
+        content_type=content_type,
+    )
+
+    protocol = "https" if settings.minio_secure else "http"
+    return f"{protocol}://{settings.minio_endpoint}/{settings.minio_bucket}/{object_name}"

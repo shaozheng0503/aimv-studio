@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment
+.env
+*.env.local
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Database / Storage
+*.db
+*.sqlite
+pgdata/
+minio_data/
+
+# Media / Generated files
+/tmp/
+*.mp4
+*.mp3
+*.wav
+*.aac
+*.jpg
+*.png
+*.webp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+celerybeat-schedule
+
+# Alembic
+backend/alembic/versions/*.pyc
+
+# Docs build
+docs/_build/
