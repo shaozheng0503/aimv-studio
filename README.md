@@ -29,16 +29,27 @@ storyboard planning → image generation → video synthesis → music productio
 ### 首页 Hero / Landing Hero
 ![Home Hero](docs/screenshots/home_hero.png)
 
-### 完整首页 / Full Landing Page
-![Home Full](docs/screenshots/home.png)
+### Agent 协作流水线 / Agent Pipeline
+![Agent Pipeline](docs/screenshots/pipeline.png)
+
+### 音乐分析引擎 / Music Analysis Engine
+![Music Analysis](docs/screenshots/music_demo.png)
+
+### AI 模型矩阵 / Model Matrix
+![Model Matrix](docs/screenshots/models.png)
+
+### 多平台导出 / Multi-Platform Export
+![Export Presets](docs/screenshots/export.png)
 
 <table>
   <tr>
+    <td align="center"><b>完整首页 / Full Landing</b></td>
     <td align="center"><b>公开画廊 / Gallery</b></td>
     <td align="center"><b>登录 / Sign In</b></td>
     <td align="center"><b>创作台 / Create</b></td>
   </tr>
   <tr>
+    <td><img src="docs/screenshots/home.png" alt="Home"/></td>
     <td><img src="docs/screenshots/gallery.png" alt="Gallery"/></td>
     <td><img src="docs/screenshots/login.png" alt="Login"/></td>
     <td><img src="docs/screenshots/create.png" alt="Create"/></td>
