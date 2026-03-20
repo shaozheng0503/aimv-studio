@@ -75,6 +75,8 @@ class MusicAnalyzer:
         # Cached audio data — loaded once in _load(), reused by all analysis methods
         self._y = None
         self._sr: int = 22050
+        # Temp dir created internally by separate_vocals; caller must call cleanup()
+        self._owned_temp_dir: str | None = None
 
     def _load(self):
         """Load audio file once; subsequent calls are no-ops."""
@@ -92,9 +94,20 @@ class MusicAnalyzer:
         self._extract_energy_curve()
         return self._analysis
 
+    def cleanup(self) -> None:
+        """Remove any temp directory created internally by separate_vocals."""
+        if self._owned_temp_dir:
+            import shutil
+            shutil.rmtree(self._owned_temp_dir, ignore_errors=True)
+            self._owned_temp_dir = None
+
     def separate_vocals(self, output_dir: str | None = None) -> tuple[str, str]:
         """Separate vocals from instrumental using htdemucs."""
-        out = output_dir or tempfile.mkdtemp()
+        if output_dir is None:
+            out = tempfile.mkdtemp()
+            self._owned_temp_dir = out
+        else:
+            out = output_dir
         try:
             subprocess.run(
                 ["python3", "-m", "demucs", "--two-stems", "vocals", "-o", out, str(self.audio_path)],

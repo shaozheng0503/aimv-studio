@@ -50,6 +50,7 @@ def run_generation_task(self, task_id: int):
     from app.utils.progress import notify_progress
 
     db = _get_sync_session()
+    task = None
     try:
         task = db.query(Task).filter(Task.id == task_id).one()
         task.status = "running"
@@ -153,11 +154,12 @@ def run_generation_task(self, task_id: int):
         })
 
     except Exception as e:
-        task.status = "failed"
-        task.error_message = str(e)
-        task.retry_count = (task.retry_count or 0) + 1
-        db.commit()
-        notify_progress(task.project_id, task.id, task.type, "failed", {"error": str(e)})
+        if task is not None:
+            task.status = "failed"
+            task.error_message = str(e)
+            task.retry_count = (task.retry_count or 0) + 1
+            db.commit()
+            notify_progress(task.project_id, task.id, task.type, "failed", {"error": str(e)})
         raise self.retry(exc=e)
 
     finally:
@@ -266,6 +268,7 @@ def run_full_pipeline(project_id: int):
         # --- Phase 3: Generate videos sequentially with frame-chaining ---
         video_paths = []
         prev_last_frame = ""
+        frame_temp_files: list[str] = []  # track locally extracted frames for cleanup
 
         for i, plan in enumerate(shot_plans):
             # Use keyframe as first frame (or previous shot's last frame)
@@ -318,8 +321,20 @@ def run_full_pipeline(project_id: int):
                     video_paths.append(video_media.file_url)
                     last_frame = shot_router.extract_last_frame(video_media.file_url)
                     if last_frame:
+                        if prev_last_frame:
+                            frame_temp_files.append(prev_last_frame)
                         prev_last_frame = last_frame
                     # else: keep prev_last_frame for next shot continuity
+
+        # Clean up all extracted frame temp files (no longer needed after video generation)
+        import os as _os
+        if prev_last_frame:
+            frame_temp_files.append(prev_last_frame)
+        for _f in frame_temp_files:
+            try:
+                _os.unlink(_f)
+            except OSError:
+                pass
 
         notify_progress(project_id, 0, "pipeline", "videos_done")
 

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { useLangStore } from '@/stores/lang'
 
-const { t } = useLangStore()
+const langStore = useLangStore()
+const { t } = storeToRefs(langStore)
 
 interface GalleryItem {
   id: number

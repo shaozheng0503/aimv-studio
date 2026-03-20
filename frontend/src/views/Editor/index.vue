@@ -153,7 +153,7 @@ const images = ref<any[]>([])
             <div v-for="(m, i) in videos" :key="m.id" class="media-item" @click="previewUrl = m.file_url">
               <span class="item-num">#{{ i + 1 }}</span>
               <span class="item-dur">{{ m.duration ? `${m.duration.toFixed(1)}s` : '' }}</span>
-              <span class="badge badge-success">就绪</span>
+              <span class="badge badge-success">{{ t('statusCompleted') }}</span>
             </div>
           </div>
         </div>

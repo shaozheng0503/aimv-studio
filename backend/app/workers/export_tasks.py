@@ -14,6 +14,7 @@ def run_export_task(self, task_id: int):
     from app.utils.progress import notify_progress
 
     db = _get_sync_session()
+    task = None
     tmp_files: list[str] = []  # track all temp files for cleanup
 
     try:
@@ -71,10 +72,11 @@ def run_export_task(self, task_id: int):
         notify_progress(task.project_id, task.id, "export", "completed", {"file_url": file_url})
 
     except Exception as e:
-        task.status = "failed"
-        task.error_message = str(e)
-        db.commit()
-        notify_progress(task.project_id, task.id, "export", "failed", {"error": str(e)})
+        if task is not None:
+            task.status = "failed"
+            task.error_message = str(e)
+            db.commit()
+            notify_progress(task.project_id, task.id, "export", "failed", {"error": str(e)})
         raise self.retry(exc=e)
     finally:
         db.close()

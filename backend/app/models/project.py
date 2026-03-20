@@ -12,7 +12,7 @@ class Project(Base):
     # draft -> planning -> generating -> composing -> done
 
     # LLM conversation context
-    chat_history: Mapped[dict | None] = mapped_column(JSON, default=list)
+    chat_history: Mapped[list | None] = mapped_column(JSON, default=list)
 
     # Style & config
     visual_style: Mapped[str | None] = mapped_column(String(50))

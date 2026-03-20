@@ -35,11 +35,16 @@ class PlanningService:
         if not music_data and audio_path:
             def _analyze():
                 analyzer = MusicAnalyzer(audio_path)
-                analysis = analyzer.analyze()
-                # Separate vocals then transcribe lyrics for subtitle generation
-                analyzer.separate_vocals()
-                analyzer.transcribe_lyrics()
-                return analysis.to_dict()
+                try:
+                    analysis = analyzer.analyze()
+                    # Separate vocals then transcribe lyrics for subtitle generation
+                    analyzer.separate_vocals()
+                    analyzer.transcribe_lyrics()
+                    return analysis.to_dict()
+                finally:
+                    # Clean up any internally created temp dirs (vocal stems are
+                    # no longer needed after transcription finishes)
+                    analyzer.cleanup()
             music_data = await asyncio.to_thread(_analyze)
 
         # Step 2: Run planning crew — crew.kickoff() is blocking, offload to thread pool

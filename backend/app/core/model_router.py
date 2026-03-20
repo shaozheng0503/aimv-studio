@@ -17,8 +17,10 @@ class ModelRouter:
         return self.VIDEO_STYLE_MAP.get(style, "veo")
 
     def route_music(self, needs_vocal: bool, style: str, quality: str = "high") -> str:
-        if needs_vocal and style in ("流行", "韩娱", "嘻哈", "pop", "kpop"):
+        _vocal_styles = {"流行", "韩娱", "嘻哈", "pop", "k-pop", "kpop", "hip-hop", "hiphop", "r&b"}
+        if needs_vocal and style.lower() in _vocal_styles:
             return "suno"
-        if quality == "studio" or style in ("古典", "国风", "电影配乐"):
+        _studio_styles = {"古典", "国风", "电影配乐", "classical", "orchestral"}
+        if quality == "studio" or style.lower() in _studio_styles:
             return "lyria"
         return "acestep"
