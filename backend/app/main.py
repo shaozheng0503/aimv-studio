@@ -54,7 +54,31 @@ import json
 
 
 @app.websocket("/ws/projects/{project_id}/progress")
-async def ws_progress(websocket: WebSocket, project_id: int):
+async def ws_progress(websocket: WebSocket, project_id: int, token: str = ""):
+    """WebSocket endpoint for real-time generation progress.
+
+    Requires a valid JWT passed as ?token=<access_token> query parameter.
+    Closes with 4001 if the token is invalid or doesn't own the project.
+    """
+    from app.core.security import decode_access_token
+    from app.core.database import async_session
+    from app.models.project import Project
+    from sqlalchemy import select
+
+    user_id = decode_access_token(token)
+    if user_id is None:
+        await websocket.close(code=4001)
+        return
+
+    # Verify project ownership before subscribing
+    async with async_session() as db:
+        result = await db.execute(
+            select(Project.id).where(Project.id == project_id, Project.user_id == user_id)
+        )
+        if result.scalar_one_or_none() is None:
+            await websocket.close(code=4003)
+            return
+
     await websocket.accept()
     r = aioredis.from_url(settings.redis_url)
     pubsub = r.pubsub()

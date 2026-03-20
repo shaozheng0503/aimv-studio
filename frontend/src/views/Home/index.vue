@@ -311,9 +311,13 @@ function startPlayhead() {
 }
 
 onMounted(() => {
-  const stored = localStorage.getItem('lang')
-  if (stored === 'en' || stored === 'zh') lang.value = stored
-  else if ((navigator.language || '').toLowerCase().startsWith('zh')) lang.value = 'zh'
+  // Only auto-detect browser language when the user has not saved a preference yet.
+  // The lang store already restores 'aimv_lang' on init, so avoid overriding it here.
+  if (!localStorage.getItem('aimv_lang')) {
+    if ((navigator.language || '').toLowerCase().startsWith('zh')) {
+      langStore.setLang('zh')
+    }
+  }
 
   Promise.all(videoSources.map(fetchSlide)).then(items => { slides.value = items })
   startCarousel()

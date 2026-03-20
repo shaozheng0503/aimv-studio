@@ -106,8 +106,11 @@ async def upload_image(
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
-    content_type = file.content_type or "image/jpeg"
-    file_url = upload_file(tmp_path, content_type)
+    try:
+        content_type = file.content_type or "image/jpeg"
+        file_url = upload_file(tmp_path, content_type)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
     media = Media(
         project_id=project.id,
@@ -130,7 +133,6 @@ async def upload_image(
 
     await db.commit()
     await db.refresh(media)
-    Path(tmp_path).unlink(missing_ok=True)
 
     return {"media_id": media.id, "file_url": file_url}
 

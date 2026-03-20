@@ -74,7 +74,8 @@ async function loadProject() {
 function connectWebSocket() {
   if (!projectId.value) return
   const wsBase = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws')
-  ws = new WebSocket(`${wsBase}/ws/projects/${projectId.value}/progress`)
+  const token = localStorage.getItem('token') || ''
+  ws = new WebSocket(`${wsBase}/ws/projects/${projectId.value}/progress?token=${encodeURIComponent(token)}`)
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
