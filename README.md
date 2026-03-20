@@ -26,24 +26,22 @@ storyboard planning → image generation → video synthesis → music productio
 
 ## 界面预览 / Screenshots
 
+### 首页 Hero / Landing Hero
+![Home Hero](docs/screenshots/home_hero.png)
+
+### 完整首页 / Full Landing Page
+![Home Full](docs/screenshots/home.png)
+
 <table>
   <tr>
-    <td align="center"><b>首页 / Home</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/home.png" alt="Home Page"/></td>
-  </tr>
-  <tr>
     <td align="center"><b>公开画廊 / Gallery</b></td>
+    <td align="center"><b>登录 / Sign In</b></td>
+    <td align="center"><b>创作台 / Create</b></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/gallery.png" alt="Gallery"/></td>
-  </tr>
-  <tr>
-    <td align="center"><b>登录 / Sign In</b></td>
-  </tr>
-  <tr>
     <td><img src="docs/screenshots/login.png" alt="Login"/></td>
+    <td><img src="docs/screenshots/create.png" alt="Create"/></td>
   </tr>
 </table>
 
