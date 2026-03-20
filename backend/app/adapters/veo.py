@@ -5,6 +5,7 @@ Veo is an async API:
   GET  /v1beta/{operation_name}              → poll until done=true
 """
 
+import base64
 import httpx
 from app.adapters.base import BaseModelAdapter, GenerateRequest, GenerateResult
 from app.adapters._poll import poll_until_done
@@ -29,10 +30,16 @@ class VeoAdapter(BaseModelAdapter):
             },
         }
         if request.reference_images:
-            body["image"] = {
-                "bytesBase64Encoded": request.reference_images[0],
-                "mimeType": "image/jpeg",
-            }
+            img_ref = request.reference_images[0]
+            if img_ref.startswith(("http://", "https://")):
+                # Veo API requires base64-encoded bytes, not a URL — download first
+                async with httpx.AsyncClient(timeout=30) as dl:
+                    img_resp = await dl.get(img_ref)
+                    img_resp.raise_for_status()
+                    img_b64 = base64.b64encode(img_resp.content).decode()
+            else:
+                img_b64 = img_ref  # already base64
+            body["image"] = {"bytesBase64Encoded": img_b64, "mimeType": "image/jpeg"}
 
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(

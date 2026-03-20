@@ -167,6 +167,7 @@ const videoSources = [
 const slides = ref<SlideItem[]>(videoSources.map(s => ({ url: s.url, ...s.fallback })))
 const activeIndex = ref(0)
 let carouselTimer: ReturnType<typeof setInterval> | null = null
+let bpmTimer: ReturnType<typeof setInterval> | null = null
 
 function goTo(i: number) { activeIndex.value = ((i % slides.value.length) + slides.value.length) % slides.value.length }
 function prevSlide() { goTo(activeIndex.value - 1); restartCarousel() }
@@ -325,11 +326,12 @@ onMounted(() => {
   agentTimer = setInterval(() => { agentActive.value = (agentActive.value + 1) % 4 }, 2200)
 
   // BPM count-up
-  let bpmTarget = 128; let bpmCurrent = 0
-  const bpmInterval = setInterval(() => {
-    bpmCurrent = Math.min(bpmTarget, bpmCurrent + 4)
+  let bpmCurrent = 0
+  const BPM_TARGET = 128
+  bpmTimer = setInterval(() => {
+    bpmCurrent = Math.min(BPM_TARGET, bpmCurrent + 4)
     bpmDisplay.value = bpmCurrent
-    if (bpmCurrent >= bpmTarget) clearInterval(bpmInterval)
+    if (bpmCurrent >= BPM_TARGET) { clearInterval(bpmTimer!); bpmTimer = null }
   }, 20)
 
   lyricTimer = setInterval(() => { lyricIndex.value = (lyricIndex.value + 1) % demoLyrics.length }, 3000)
@@ -341,6 +343,7 @@ onUnmounted(() => {
   stopCarousel()
   if (agentTimer) clearInterval(agentTimer)
   if (lyricTimer) clearInterval(lyricTimer)
+  if (bpmTimer) clearInterval(bpmTimer)
   if (playheadRAF) cancelAnimationFrame(playheadRAF)
 })
 </script>
