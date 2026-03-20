@@ -51,6 +51,19 @@ User Input (text / uploaded audio)
 
 ---
 
+## Screenshots
+
+### Home — Landing Page
+![Home](docs/screenshots/home.png)
+
+### Gallery — Public MV Showcase
+![Gallery](docs/screenshots/gallery.png)
+
+### Sign In
+![Login](docs/screenshots/login.png)
+
+---
+
 ## Features
 
 - **Multi-agent planning** — CrewAI orchestrates 4 agents with distinct roles; LLM (GPT-4o / Gemini 2.5 Flash) handles intent understanding and prompt generation

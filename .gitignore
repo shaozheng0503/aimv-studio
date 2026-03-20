@@ -32,9 +32,12 @@ minio_data/
 *.mp3
 *.wav
 *.aac
+
+# Ignore generated images everywhere except docs/screenshots
 *.jpg
-*.png
 *.webp
+*.png
+!docs/screenshots/*.png
 
 # IDE
 .idea/
