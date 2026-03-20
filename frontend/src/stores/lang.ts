@@ -310,7 +310,7 @@ export const useLangStore = defineStore('lang', () => {
   }
 
   const t = computed(() => (key: keyof Messages): string => {
-    return (messages[lang.value] as Messages)[key] ?? (messages.en as Messages)[key] ?? key
+    return (messages[lang.value] as unknown as Messages)[key] ?? (messages.en as unknown as Messages)[key] ?? key
   })
 
   return { lang, setLang, t }

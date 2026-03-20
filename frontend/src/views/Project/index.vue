@@ -35,7 +35,7 @@ onMounted(async () => {
 })
 
 async function createProject() {
-  const res = await api.post('/projects', { title: t('projectUntitled') })
+  const res = await api.post('/projects', { title: t.value('projectUntitled') })
   router.push(`/create/${res.data.id}`)
 }
 
