@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
 
@@ -19,6 +19,9 @@ const selectedModels = ref<string[]>([])
 const loading = ref(false)
 const results = ref<any[]>([])
 const groupId = ref('')
+let _stopPolling = false
+
+onUnmounted(() => { _stopPolling = true })
 
 const modelOptions: Record<string, { label: string; value: string }[]> = {
   video: [
@@ -70,8 +73,10 @@ async function startCompare() {
 }
 
 async function pollResults() {
+  _stopPolling = false
   for (let i = 0; i < 120; i++) {
     await new Promise(r => setTimeout(r, 3000))
+    if (_stopPolling) break
     try {
       const res = await api.get(`/projects/${props.projectId}/compare/${groupId.value}`)
       results.value = res.data.tasks
@@ -79,7 +84,7 @@ async function pollResults() {
       if (allDone) break
     } catch { break }
   }
-  loading.value = false
+  if (!_stopPolling) loading.value = false
 }
 
 async function pickWinner(taskId: number, model: string) {

@@ -120,7 +120,9 @@ async def pick_winner(
 ):
     """User picks the winning version from a comparison."""
     result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
+        select(Task)
+        .join(Project)
+        .where(Task.id == task_id, Task.project_id == project_id, Project.user_id == user.id)
     )
     task = result.scalar_one_or_none()
     if not task:

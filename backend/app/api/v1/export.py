@@ -67,8 +67,13 @@ async def export_video(
         lyrics_data = (project.style_config or {}).get("music_analysis", {}).get("lyrics", [])
         if lyrics_data:
             from app.core.music_analyzer import MusicAnalysis, LyricLine
+            _lyric_fields = {"text", "start", "end"}
             dummy = MusicAnalysis()
-            dummy.lyrics = [LyricLine(**l) for l in lyrics_data]
+            dummy.lyrics = [
+                LyricLine(**{k: v for k, v in l.items() if k in _lyric_fields})
+                for l in lyrics_data
+                if isinstance(l, dict)
+            ]
             srt_content = dummy.to_srt() or None
 
     # Create export task
