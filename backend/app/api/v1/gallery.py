@@ -1,6 +1,6 @@
 """Gallery API — Public showcase of published MV projects."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, desc, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,9 +121,14 @@ async def list_gallery(
 @router.post("/gallery/{project_id}/like")
 async def like_project(
     project_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Like a published project (no auth required for simplicity)."""
+    """Like a published project (no auth required). Rate-limited to 1 per IP per project per hour."""
+    from app.utils.redis_pool import check_rate_limit
+    client_ip = request.client.host if request.client else "unknown"
+    await check_rate_limit(f"like:{project_id}:{client_ip}", limit=1, window=3600)
+
     result = await db.execute(
         select(Project).where(Project.id == project_id).with_for_update()
     )

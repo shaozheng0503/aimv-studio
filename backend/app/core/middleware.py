@@ -1,7 +1,7 @@
 """Global error handling middleware."""
 
 import traceback
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -9,8 +9,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
-            response = await call_next(request)
-            return response
+            return await call_next(request)
+        except HTTPException:
+            raise  # let FastAPI's own handler format 4xx/5xx correctly
         except Exception as e:
             traceback.print_exc()
             return JSONResponse(

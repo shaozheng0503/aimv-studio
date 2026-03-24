@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 
 
@@ -7,6 +7,14 @@ class ProjectCreate(BaseModel):
     visual_style: str | None = None
     music_style: str | None = None
     mood: str | None = None
+
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Title cannot be empty")
+        return v[:200]
 
 
 class ProjectUpdate(BaseModel):
@@ -17,6 +25,22 @@ class ProjectUpdate(BaseModel):
     style_config: dict | None = None
     model_preferences: dict | None = None
     storyboard: list | None = None
+
+
+class ProjectListResponse(BaseModel):
+    """Lightweight response for list views — omits heavy chat_history and character_bank."""
+    id: int
+    title: str
+    status: str
+    visual_style: str | None
+    music_style: str | None
+    mood: str | None
+    style_config: dict | None
+    model_preferences: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class ProjectResponse(BaseModel):

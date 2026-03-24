@@ -6,7 +6,7 @@ from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.models.project import Project, Task, Media
 from app.schemas.project import (
-    ProjectCreate, ProjectUpdate, ProjectResponse, TaskResponse, MediaResponse,
+    ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse, TaskResponse, MediaResponse,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -25,7 +25,7 @@ async def create_project(
     return project
 
 
-@router.get("", response_model=list[ProjectResponse])
+@router.get("", response_model=list[ProjectListResponse])
 async def list_projects(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

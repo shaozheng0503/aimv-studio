@@ -61,7 +61,7 @@ async function saveEditSeg() {
     editingSegIdx.value = null
     editingSegData.value = null
   } catch {
-    ElMessage.error('保存失败，请重试')
+    ElMessage.error(t.value('saveError'))
   } finally {
     savingStoryboard.value = false
   }
@@ -304,6 +304,7 @@ function taskTypeLabel(type: string): string {
 }
 
 function uploadAudio() {
+  if (isGuest.value) { showLoginModal.value = true; return }
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.mp3,.wav,.flac,.m4a'
@@ -328,6 +329,15 @@ function uploadAudio() {
 </script>
 
 <template>
+  <div class="create-wrapper">
+  <header class="create-topbar">
+    <router-link to="/" class="topbar-logo">AIMV</router-link>
+    <span class="topbar-project">{{ route.params.id ? `#${route.params.id}` : '' }}</span>
+    <div class="topbar-right">
+      <router-link v-if="!isGuest" to="/projects" class="btn-ghost btn-sm">{{ t('myProjects') }}</router-link>
+      <button v-else class="btn-primary btn-sm" @click="showLoginModal = true">{{ t('loginBtn') }} / {{ t('registerBtn') }}</button>
+    </div>
+  </header>
   <div class="create-layout">
     <!-- Chat Panel -->
     <aside class="chat-panel">
@@ -422,7 +432,7 @@ function uploadAudio() {
       @picked="(id, model) => ElMessage.success(`已选择 ${model}`)"
     />
 
-    <!-- Properties Panel -->
+    <!-- Right: Properties Panel -->
     <aside class="props-panel">
       <h3>{{ t('properties') }}</h3>
       <div class="prop-group">
@@ -528,11 +538,28 @@ function uploadAudio() {
         </div>
       </div>
     </aside>
-  </div>
+  </div><!-- end .create-layout -->
+  </div><!-- end .create-wrapper -->
 </template>
 
 <style scoped>
-.create-layout { display: flex; height: 100vh; overflow: hidden; }
+.create-wrapper { display: flex; flex-direction: column; height: 100vh; }
+
+/* Top navigation bar */
+.create-topbar {
+  height: 44px; flex-shrink: 0;
+  display: flex; align-items: center; padding: 0 16px; gap: 12px;
+  background: var(--bg-soft); border-bottom: 1px solid var(--border);
+}
+.topbar-logo {
+  font-size: 18px; font-weight: 700;
+  background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  text-decoration: none;
+}
+.topbar-project { font-size: 12px; color: var(--text-muted); flex: 1; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+
+.create-layout { flex: 1; display: flex; overflow: hidden; }
 
 /* Chat */
 .chat-panel {

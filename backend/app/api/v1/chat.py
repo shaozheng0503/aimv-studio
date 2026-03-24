@@ -7,7 +7,7 @@ Supports:
 - POST /chat/stream — SSE streaming endpoint
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request  # noqa: F401 — Request used below
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -100,8 +100,12 @@ async def _load_project(project_id: int, user: User, db: AsyncSession) -> Projec
 
 
 @router.post("/chat/guest")
-async def chat_guest(req: ChatMessage):
+async def chat_guest(req: ChatMessage, request: Request):
     """Stateless chat for unauthenticated guests — no project, no persistence."""
+    from app.utils.redis_pool import check_rate_limit
+    client_ip = request.client.host if request.client else "unknown"
+    await check_rate_limit(f"guest_chat:{client_ip}", limit=20, window=60)
+
     prior = req.history or []
     # Strip system/non-standard roles so LLM client only sees user/assistant
     history = [m for m in prior if m.get("role") in ("user", "assistant")]

@@ -9,9 +9,10 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     yield
-    # Shutdown
+    # Shutdown: close shared async Redis pool
+    from app.utils.redis_pool import close_async_redis
+    await close_async_redis()
 
 
 app = FastAPI(
@@ -44,12 +45,32 @@ app.include_router(gallery.router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    from sqlalchemy import text
+    from app.core.database import engine
+    from app.utils.redis_pool import get_async_redis
+
+    db_ok = False
+    redis_ok = False
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+
+    try:
+        await get_async_redis().ping()
+        redis_ok = True
+    except Exception:
+        pass
+
+    status = "ok" if db_ok and redis_ok else "degraded"
+    return {"status": status, "version": "0.1.0", "db": db_ok, "redis": redis_ok}
 
 
 # WebSocket for real-time generation progress
 from fastapi import WebSocket, WebSocketDisconnect
-import redis.asyncio as aioredis
 import asyncio
 import json
 
@@ -90,8 +111,8 @@ async def ws_progress(websocket: WebSocket, project_id: int):
             await websocket.close(code=4003)
             return
 
-    r = aioredis.from_url(settings.redis_url)
-    pubsub = r.pubsub()
+    from app.utils.redis_pool import get_async_redis
+    pubsub = get_async_redis().pubsub()
     channel = f"project:{project_id}:progress"
     await pubsub.subscribe(channel)
     try:
@@ -103,4 +124,4 @@ async def ws_progress(websocket: WebSocket, project_id: int):
         pass
     finally:
         await pubsub.unsubscribe(channel)
-        await r.aclose()
+        await pubsub.aclose()  # close only the pubsub connection, not the shared pool
