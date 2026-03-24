@@ -16,6 +16,8 @@ defineProps<{
   selected?: boolean
 }>()
 
+const emit = defineEmits<{ generate: [] }>()
+
 function seekToFirstFrame(e: Event) {
   const v = e.target as HTMLVideoElement
   v.currentTime = 0.5
@@ -55,6 +57,14 @@ function fmt(s: number) {
 
       <span v-if="data.segment" class="seg-badge">{{ data.segment }}</span>
       <span class="pip" :class="data.status" />
+
+      <!-- quick-generate button (visible on hover, hidden when generating) -->
+      <button
+        v-if="data.status !== 'generating'"
+        class="quick-gen-btn"
+        :title="data.status === 'failed' ? '重试生成' : '生成此镜头'"
+        @click.stop="emit('generate')"
+      >{{ data.status === 'failed' ? '↺' : '⚡' }}</button>
     </div>
 
     <!-- body -->
@@ -150,6 +160,18 @@ function fmt(s: number) {
   background: rgba(255,255,255,.07); color: rgba(255,255,255,.45);
 }
 .tag.anchor { color: #a78bfa; background: rgba(141,92,255,.18); }
+
+/* quick-generate hover button */
+.quick-gen-btn {
+  position: absolute; bottom: 6px; left: 8px;
+  width: 22px; height: 22px; border-radius: 6px; border: none;
+  background: rgba(141,92,255,.85); color: white;
+  font-size: 11px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .15s, background .15s; z-index: 5;
+}
+.shot-node:hover .quick-gen-btn { opacity: 1; }
+.quick-gen-btn:hover { background: #8d5cff; }
 
 /* handle */
 .vf-handle {

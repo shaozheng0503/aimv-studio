@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, markRaw, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, markRaw, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
@@ -178,11 +178,35 @@ const nodes = ref<any[]>(initialNodes)
 const edges = ref<any[]>(initialEdges)
 
 // ─── API state ─────────────────────────────────────────────────────────────
-const loading      = ref(false)
-const saving       = ref(false)
-const canSave      = ref(false)
-const projectTitle = ref('')
-const showGuide    = ref(false)
+const loading       = ref(false)
+const saving        = ref(false)
+const canSave       = ref(false)
+const projectTitle  = ref('')
+const showGuide     = ref(false)
+const editingTitle  = ref(false)
+const editedTitle   = ref('')
+
+async function startEditTitle() {
+  editedTitle.value = projectTitle.value
+  editingTitle.value = true
+  await nextTick()
+  ;(document.getElementById('title-edit-input') as HTMLInputElement | null)?.focus()
+}
+
+async function saveProjectTitle() {
+  editingTitle.value = false
+  const t = editedTitle.value.trim()
+  if (!t || t === projectTitle.value || !projectId) return
+  const prev = projectTitle.value
+  projectTitle.value = t
+  document.title = `${t} — Canvas`
+  try {
+    await api.put(`/projects/${projectId}`, { title: t })
+  } catch {
+    projectTitle.value = prev
+    document.title = `${prev} — Canvas`
+  }
+}
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const pollingIntervals: Record<string, ReturnType<typeof setInterval>> = {}
 
@@ -235,11 +259,17 @@ const shotStats = computed(() => {
 
 // Sync shot node status from polling result
 function _patchNodeStatus(nodeId: string, status: string, videoUrl?: string | null) {
-  nodes.value = nodes.value.map(n =>
-    n.id === nodeId
-      ? { ...n, data: { ...n.data, status, ...(videoUrl ? { videoUrl } : {}) } }
-      : n
-  )
+  let shotIndex: number | null = null
+  nodes.value = nodes.value.map(n => {
+    if (n.id === nodeId) {
+      shotIndex = n.data.index ?? null
+      return { ...n, data: { ...n.data, status, ...(videoUrl ? { videoUrl } : {}) } }
+    }
+    return n
+  })
+  const idxStr = shotIndex !== null ? ` #${String(shotIndex).padStart(2, '0')}` : ''
+  if (status === 'done')   ElMessage.success({ message: `Shot${idxStr} 生成完成 ✓`, duration: 3500 })
+  if (status === 'failed') ElMessage.error({ message: `Shot${idxStr} 生成失败`, duration: 4000 })
 }
 
 function startPolling(nodeId: string) {
@@ -581,6 +611,35 @@ async function generateAll() {
         .forEach((n: any) => startPolling(n.id))
     }
   } catch { /* ignore */ }
+}
+
+// ─── auto-layout ──────────────────────────────────────────────────────────
+function autoLayout() {
+  const songs  = nodes.value.filter(n => n.type === 'song')
+  const chars  = nodes.value.filter(n => n.type === 'char')
+  const scenes = nodes.value.filter(n => n.type === 'scene')
+  const shots  = nodes.value.filter(n => n.type === 'shot')
+  const zones  = nodes.value.filter(n => n.type === 'zone')
+
+  pushHistory()
+
+  const COL_MAT  = 80    // songs + chars
+  const COL_SCN  = 400   // scenes
+  const COL_SHOT = 700   // shots (2 sub-columns)
+  const ROW_GAP  = 190
+
+  const laid: any[] = [...zones]
+  songs.forEach((n, i) => laid.push({ ...n, position: { x: COL_MAT, y: 80 + i * ROW_GAP } }))
+  chars.forEach((n, i) => laid.push({ ...n, position: { x: COL_MAT, y: 80 + (songs.length + i) * ROW_GAP } }))
+  scenes.forEach((n, i) => laid.push({ ...n, position: { x: COL_SCN, y: 100 + i * ROW_GAP } }))
+  shots.forEach((n, i) => {
+    const col = Math.floor(i / 4)
+    const row = i % 4
+    laid.push({ ...n, position: { x: COL_SHOT + col * 260, y: 50 + row * ROW_GAP } })
+  })
+
+  nodes.value = laid
+  setTimeout(() => fitView({ padding: 0.1 }), 120)
 }
 
 function minimapNodeColor(node: any): string {
@@ -943,7 +1002,16 @@ onUnmounted(() => {
     <!-- ── Top Bar ─────────────────────────────────────────────────────────── -->
     <header class="topbar">
       <button class="back-btn" @click="router.back()">&#x2190; &#x8FD4;&#x56DE;</button>
-      <span class="project-name">{{ projectTitle || 'AIMV Canvas' }}</span>
+      <input
+        v-if="editingTitle"
+        id="title-edit-input"
+        class="title-edit-input"
+        v-model="editedTitle"
+        @blur="saveProjectTitle"
+        @keyup.enter="saveProjectTitle"
+        @keyup.esc="editingTitle = false"
+      />
+      <span v-else class="project-name" @dblclick="startEditTitle" title="双击重命名">{{ projectTitle || 'AIMV Canvas' }}</span>
       <div class="topbar-center">
         <span class="canvas-badge">&#x2728; 自由画布</span>
         <div class="undo-redo">
@@ -965,6 +1033,7 @@ onUnmounted(() => {
           <span v-if="shotStats.failed > 0" class="sc-fail">&#x25CF; {{ shotStats.failed }}</span>
         </div>
         <span v-if="saving" class="saving-hint">&#x1F4BE; &#x4FDD;&#x5B58;&#x4E2D;&#x2026;</span>
+        <button class="btn-layout" @click="autoLayout()" title="自动整理节点布局">&#x25A6; 自动布局</button>
         <button class="btn-import" @click="importFromStoryboard()" title="从分镜脚本导入镜头节点">&#x21E9; 导入分镜</button>
         <button class="btn-gen-all" @click="generateAll()">&#x26A1; &#x751F;&#x6210;&#x7A7A;&#x767D;&#x955C;&#x5934;</button>
         <button class="btn-export" @click="router.push(`/editor/${projectId}`)">&#x5BFC;&#x51FA;&#x65F6;&#x95F4;&#x7EBF; &#x2192;</button>
@@ -1009,7 +1078,8 @@ onUnmounted(() => {
           <!-- slot overrides to pass programmatic selection state -->
           <template #node-shot="np">
             <component :is="nodeTypes.shot"  v-bind="np"
-              :selected="np.id === selectedNodeId || np.id === highlightedNodeId" />
+              :selected="np.id === selectedNodeId || np.id === highlightedNodeId"
+              @generate="generateShot(np.id)" />
           </template>
           <template #node-song="np">
             <component :is="nodeTypes.song"  v-bind="np" :selected="np.id === selectedNodeId" />
@@ -1941,6 +2011,23 @@ label {
   border-radius: 8px; cursor: pointer; white-space: nowrap;
 }
 .btn-import:hover { border-color: rgba(255,255,255,.4); color: white; }
+
+/* editable project title */
+.title-edit-input {
+  background: rgba(255,255,255,.07); border: 1px solid rgba(141,92,255,.5);
+  color: white; font-size: .85rem; border-radius: 8px;
+  padding: 3px 10px; outline: none; max-width: 220px;
+}
+.project-name { cursor: default; }
+.project-name:hover { color: rgba(255,255,255,.75); }
+
+/* auto-layout button */
+.btn-layout {
+  background: transparent; border: 1px solid rgba(255,255,255,.15);
+  color: rgba(255,255,255,.45); font-size: .75rem; padding: 5px 11px;
+  border-radius: 8px; cursor: pointer; white-space: nowrap;
+}
+.btn-layout:hover { border-color: rgba(255,255,255,.35); color: rgba(255,255,255,.75); }
 
 /* undo / redo buttons */
 .undo-redo { display: flex; gap: 4px; margin-left: 10px; }
