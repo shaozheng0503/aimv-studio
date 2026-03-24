@@ -149,7 +149,7 @@ function toggleLang() {
 
 // ─── routing ─────────────────────────────────────────────────────────────────
 function startCreating() {
-  router.push(localStorage.getItem('token') ? '/create' : '/login')
+  router.push('/create')
 }
 
 // ─── carousel ────────────────────────────────────────────────────────────────
