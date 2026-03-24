@@ -878,12 +878,12 @@ onUnmounted(() => {
       <!-- TESTIMONIALS -->
       <section class="testimonials section-light">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header fade-up">
             <h2>{{ t.testimonials_title }}</h2>
             <p>{{ t.testimonials_subtitle }}</p>
           </div>
-          <div class="testimonial-grid">
-            <article class="testimonial-card fade-up" v-for="(item, idx) in testimonials" :key="item.name">
+          <div class="testimonial-grid fade-up">
+            <article class="testimonial-card" v-for="(item, idx) in testimonials" :key="item.name">
               <div class="t-stars">★★★★★</div>
               <div class="testimonial-header">
                 <div class="t-avatar" :style="{ background: avatarColors[idx % avatarColors.length] }">
@@ -1429,6 +1429,21 @@ section { padding:72px 0; }
 
 /* ── Testimonial stars ─────────────────────────────────────────────────────── */
 .t-stars { font-size:.9rem;color:#fbbf24;letter-spacing:2px;margin-bottom:12px; }
+
+/* Stagger testimonial cards once the grid is visible */
+.testimonial-grid.visible .testimonial-card {
+  animation: cardIn .5s ease both;
+}
+.testimonial-grid.visible .testimonial-card:nth-child(1) { animation-delay:.05s; }
+.testimonial-grid.visible .testimonial-card:nth-child(2) { animation-delay:.12s; }
+.testimonial-grid.visible .testimonial-card:nth-child(3) { animation-delay:.19s; }
+.testimonial-grid.visible .testimonial-card:nth-child(4) { animation-delay:.26s; }
+.testimonial-grid.visible .testimonial-card:nth-child(5) { animation-delay:.33s; }
+.testimonial-grid.visible .testimonial-card:nth-child(6) { animation-delay:.40s; }
+@keyframes cardIn {
+  from { opacity:0;transform:translateY(20px); }
+  to   { opacity:1;transform:translateY(0); }
+}
 
 /* ── Fade-up animation ─────────────────────────────────────────────────────── */
 .fade-up { opacity:0;transform:translateY(28px);transition:opacity .65s ease,transform .65s ease; }
