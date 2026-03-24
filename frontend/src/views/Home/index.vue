@@ -73,6 +73,23 @@ const i18n = {
     footer_models: 'AI Models', footer_m1: 'Z-image', footer_m2: 'Wan2.2 14B', footer_m3: 'Seedance 2.0', footer_m4: 'ACEStep 1.5',
     footer_more: 'More', footer_more1: 'GitHub', footer_more2: 'Docs', footer_more3: 'About', footer_more4: 'Open Source',
     footer_socials: 'Community', footer_s1: 'GitHub', footer_s2: 'Discord', footer_s3: 'Bilibili', footer_s4: 'Twitter / X',
+    nav_cta: 'Get started free',
+    hero_trust: 'Free during beta · No credit card required',
+    featured_in: 'Integrated with',
+    pricing_title: 'Simple, honest pricing',
+    pricing_subtitle: 'Free during beta — no credit card required. Cancel anytime.',
+    pricing_free: 'Free',
+    pricing_f1: '5 projects / month',
+    pricing_f2: '50 AI clip generations',
+    pricing_f3: 'All 12+ AI models',
+    pricing_f4: 'Multi-platform export',
+    pricing_f5: 'Public gallery & sharing',
+    pricing_cta: 'Start for free',
+    pricing_note: 'Paid plans launch after beta. Early adopters get 3 months free.',
+    cta_title: 'Your next MV is one prompt away.',
+    cta_sub: 'Join 500+ creators already building with AIMV Studio.',
+    cta_btn: "Start creating — it's free",
+    cta_note: 'No credit card · No setup · Ready in 60 seconds',
   },
   zh: {
     nav_gallery: '作品库', nav_create: '开始创作', nav_signin: '登录',
@@ -136,6 +153,23 @@ const i18n = {
     footer_models: 'AI 模型', footer_m1: 'Z-image', footer_m2: 'Wan2.2 14B', footer_m3: 'Seedance 2.0', footer_m4: 'ACEStep 1.5',
     footer_more: '更多', footer_more1: 'GitHub', footer_more2: '文档', footer_more3: '关于', footer_more4: '开源',
     footer_socials: '社区', footer_s1: 'GitHub', footer_s2: 'Discord', footer_s3: 'Bilibili', footer_s4: 'Twitter / X',
+    nav_cta: '免费开始',
+    hero_trust: 'Beta 期间完全免费 · 无需信用卡',
+    featured_in: '集成模型与平台',
+    pricing_title: '简单透明的定价',
+    pricing_subtitle: 'Beta 期间免费，无需信用卡，随时取消。',
+    pricing_free: '免费',
+    pricing_f1: '每月 5 个项目',
+    pricing_f2: '50 次 AI 片段生成',
+    pricing_f3: '全部 12+ AI 模型',
+    pricing_f4: '多平台导出',
+    pricing_f5: '公开画廊与分享',
+    pricing_cta: '立即免费开始',
+    pricing_note: 'Beta 结束后推出付费套餐，早期用户享 3 个月免费。',
+    cta_title: '你的下一个 MV，只差一句描述。',
+    cta_sub: '加入已有 500+ 位创作者的 AIMV Studio。',
+    cta_btn: '开始创作 — 永久免费',
+    cta_note: '无需信用卡 · 无需配置 · 60 秒即可上手',
   },
 } as const
 
@@ -434,6 +468,20 @@ const galleryItems = [
 
 const avatarColors = ['#8d5cff', '#f3b2ff', '#5cf3ff', '#ff9bd1', '#ffcf5c']
 
+// ─── header scroll blur ───────────────────────────────────────────────────────
+const scrolled = ref(false)
+function onScroll() { scrolled.value = window.scrollY > 60 }
+
+// ─── mobile menu ─────────────────────────────────────────────────────────────
+const mobileMenuOpen = ref(false)
+
+// ─── faq accordion ───────────────────────────────────────────────────────────
+const faqOpen = ref<number | null>(null)
+function toggleFaq(n: number) { faqOpen.value = faqOpen.value === n ? null : n }
+
+// ─── intersection observer (fade-up) ─────────────────────────────────────────
+let fadeObserver: IntersectionObserver | null = null
+
 const testimonials = computed(() => [
   { name: t.value.t1_name, role: t.value.t1_role, quote: t.value.t1_quote },
   { name: t.value.t2_name, role: t.value.t2_role, quote: t.value.t2_quote },
@@ -484,6 +532,21 @@ onMounted(() => {
   lyricTimer = setInterval(() => { lyricIndex.value = (lyricIndex.value + 1) % demoLyrics.length }, 3000)
   startPlayhead()
   setTimeout(animateStats, 300)
+
+  window.addEventListener('scroll', onScroll, { passive: true })
+
+  fadeObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible')
+          fadeObserver!.unobserve(e.target)
+        }
+      })
+    },
+    { threshold: 0.1 }
+  )
+  document.querySelectorAll('.fade-up').forEach(el => fadeObserver!.observe(el))
 })
 
 onUnmounted(() => {
@@ -492,6 +555,8 @@ onUnmounted(() => {
   if (lyricTimer) clearInterval(lyricTimer)
   if (bpmTimer) clearInterval(bpmTimer)
   if (playheadRAF) cancelAnimationFrame(playheadRAF)
+  window.removeEventListener('scroll', onScroll)
+  if (fadeObserver) fadeObserver.disconnect()
 })
 </script>
 
@@ -499,7 +564,7 @@ onUnmounted(() => {
   <div class="home-page">
 
     <!-- HEADER -->
-    <header class="site-header">
+    <header class="site-header" :class="{ scrolled }">
       <div class="header-inner">
         <router-link to="/" class="logo">
           <span class="logo-text">AIMV Studio</span>
@@ -509,10 +574,21 @@ onUnmounted(() => {
           <a href="#" @click.prevent="startCreating">{{ t.nav_create }}</a>
           <router-link to="/login">{{ t.nav_signin }}</router-link>
         </nav>
+        <a class="nav-cta" href="#" @click.prevent="startCreating">{{ t.nav_cta }}</a>
         <button class="lang-toggle" type="button" @click="toggleLang" :aria-label="t.lang_label">
           <span class="lang-label-text">{{ t.lang_label }}</span>
           <span class="lang-value">{{ t.lang_current }}</span>
         </button>
+        <button class="hamburger" type="button" @click="mobileMenuOpen = !mobileMenuOpen" aria-label="Menu">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+      <!-- Mobile nav drawer -->
+      <div class="mobile-nav" :class="{ open: mobileMenuOpen }" @click="mobileMenuOpen = false">
+        <router-link to="/gallery">{{ t.nav_gallery }}</router-link>
+        <a href="#" @click.prevent="startCreating">{{ t.nav_create }}</a>
+        <router-link to="/login">{{ t.nav_signin }}</router-link>
+        <a class="mobile-nav-cta" href="#" @click.prevent="startCreating">{{ t.nav_cta }}</a>
       </div>
     </header>
 
@@ -527,9 +603,10 @@ onUnmounted(() => {
           </div>
           <div class="hero-overlay">
             <div class="hero-content">
-              <h1>{{ t.hero_title }}</h1>
+              <h1 class="hero-h1-gradient">{{ t.hero_title }}</h1>
               <h2>{{ t.hero_subtitle }}</h2>
               <a class="hero-cta" href="#" @click.prevent="startCreating">{{ t.hero_cta }}</a>
+              <p class="hero-trust-line">{{ t.hero_trust }}</p>
               <div class="hero-trusted">
                 <p>{{ t.hero_trusted }}</p>
                 <div class="hero-avatars">
@@ -562,10 +639,26 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- FEATURED IN -->
+      <div class="featured-strip">
+        <div class="container">
+          <span class="featured-label">{{ t.featured_in }}</span>
+          <div class="featured-logos">
+            <span class="f-logo" style="color:#10a37f">OpenAI</span>
+            <span class="f-logo" style="color:#4285F4">Google DeepMind</span>
+            <span class="f-logo" style="color:#1877F2">Meta AI</span>
+            <span class="f-logo" style="color:#FF6B00">Stability AI</span>
+            <span class="f-logo" style="color:#FE2C55">ByteDance</span>
+            <span class="f-logo" style="color:#FFD21E">Hugging Face</span>
+            <span class="f-logo" style="color:#fff">GitHub</span>
+          </div>
+        </div>
+      </div>
+
       <!-- MUSIC VIDEOS -->
       <section id="music-videos" class="section-dark">
         <div class="container">
-          <div class="section-header"><h2>{{ t.music_videos_title }}</h2></div>
+          <div class="section-header fade-up"><h2>{{ t.music_videos_title }}</h2></div>
           <div class="mv-carousel" @mouseenter="stopCarousel" @mouseleave="startCarousel">
             <button class="carousel-btn" type="button" @click="prevSlide">&#8249;</button>
             <div class="carousel-track">
@@ -600,7 +693,7 @@ onUnmounted(() => {
       <!-- ① AGENT PIPELINE -->
       <section id="pipeline" class="section-light">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header fade-up">
             <h2>{{ t.pipeline_title }}</h2>
             <p>{{ t.pipeline_subtitle }}</p>
           </div>
@@ -656,7 +749,7 @@ onUnmounted(() => {
       <!-- ② MUSIC ANALYSIS DEMO -->
       <section id="music-demo" class="section-dark">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header fade-up">
             <h2>{{ t.music_demo_title }}</h2>
             <p>{{ t.music_demo_subtitle }}</p>
           </div>
@@ -695,7 +788,7 @@ onUnmounted(() => {
       <!-- ③ MODEL MATRIX -->
       <section id="models" class="section-light">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header fade-up">
             <h2>{{ t.models_title }}</h2>
             <p>{{ t.models_subtitle }}</p>
           </div>
@@ -731,7 +824,7 @@ onUnmounted(() => {
       <!-- ④ EXPORT PRESETS -->
       <section id="export" class="section-dark">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header fade-up">
             <h2>{{ t.export_title }}</h2>
             <p>{{ t.export_subtitle }}</p>
           </div>
@@ -753,6 +846,35 @@ onUnmounted(() => {
         </div>
       </section>
 
+      <!-- PRICING -->
+      <section id="pricing" class="section-light">
+        <div class="container">
+          <div class="section-header fade-up">
+            <h2>{{ t.pricing_title }}</h2>
+            <p>{{ t.pricing_subtitle }}</p>
+          </div>
+          <div class="pricing-wrapper fade-up">
+            <div class="pricing-card">
+              <div class="pricing-top">
+                <span class="pricing-tier-badge">Beta</span>
+                <div class="pricing-amount">
+                  <span class="pricing-price">{{ t.pricing_free }}</span>
+                </div>
+                <p class="pricing-desc">{{ t.pricing_subtitle }}</p>
+              </div>
+              <ul class="pricing-features">
+                <li v-for="n in 5" :key="n">
+                  <svg viewBox="0 0 20 20" fill="currentColor" class="pricing-check"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  {{ t[`pricing_f${n}` as LangKey] }}
+                </li>
+              </ul>
+              <a class="pricing-cta-btn" href="#" @click.prevent="startCreating">{{ t.pricing_cta }}</a>
+              <p class="pricing-note">{{ t.pricing_note }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- TESTIMONIALS -->
       <section class="testimonials section-light">
         <div class="container">
@@ -761,7 +883,8 @@ onUnmounted(() => {
             <p>{{ t.testimonials_subtitle }}</p>
           </div>
           <div class="testimonial-grid">
-            <article class="testimonial-card" v-for="(item, idx) in testimonials" :key="item.name">
+            <article class="testimonial-card fade-up" v-for="(item, idx) in testimonials" :key="item.name">
+              <div class="t-stars">★★★★★</div>
               <div class="testimonial-header">
                 <div class="t-avatar" :style="{ background: avatarColors[idx % avatarColors.length] }">
                   {{ item.name[0] }}
@@ -812,13 +935,31 @@ onUnmounted(() => {
       <!-- FAQ -->
       <section id="faq" class="section-dark">
         <div class="container">
-          <div class="section-header"><h2>{{ t.faq_title }}</h2></div>
-          <div class="faq-grid">
-            <article class="faq-card" v-for="n in 4" :key="n">
-              <h3>{{ t[`faq_${n}_q` as LangKey] }}</h3>
-              <p>{{ t[`faq_${n}_a` as LangKey] }}</p>
-            </article>
+          <div class="section-header fade-up"><h2>{{ t.faq_title }}</h2></div>
+          <div class="faq-list fade-up">
+            <div class="faq-item" v-for="n in 4" :key="n" :class="{ open: faqOpen === n }">
+              <button class="faq-q" @click="toggleFaq(n)">
+                <span>{{ t[`faq_${n}_q` as LangKey] }}</span>
+                <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              <div class="faq-a">
+                <p>{{ t[`faq_${n}_a` as LangKey] }}</p>
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
+
+      <!-- FINAL CTA -->
+      <section class="final-cta-section">
+        <div class="container final-cta-inner fade-up">
+          <div class="final-cta-glow" aria-hidden="true"></div>
+          <h2>{{ t.cta_title }}</h2>
+          <p>{{ t.cta_sub }}</p>
+          <a class="hero-cta final-cta-btn" href="#" @click.prevent="startCreating">{{ t.cta_btn }}</a>
+          <span class="final-cta-note">{{ t.cta_note }}</span>
         </div>
       </section>
 
@@ -1150,4 +1291,146 @@ section { padding:72px 0; }
   .lang-label-text { display:none; }
   .carousel-btn { display:none; }
 }
+
+/* ── Header scroll blur ────────────────────────────────────────────────────── */
+.site-header { transition:background-color .3s,box-shadow .3s,backdrop-filter .3s; }
+.site-header.scrolled {
+  background-color:rgba(8,8,14,.88) !important;
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  box-shadow:0 1px 0 rgba(255,255,255,.06);
+}
+
+/* ── Nav CTA button ────────────────────────────────────────────────────────── */
+.nav-cta {
+  display:inline-flex;align-items:center;padding:7px 18px;border-radius:999px;
+  background:var(--accent-gradient);color:#000 !important;font-size:.85rem;font-weight:700;
+  white-space:nowrap;flex-shrink:0;transition:opacity .2s,transform .2s;
+}
+.nav-cta:hover { opacity:.9;transform:translateY(-1px); }
+@media(max-width:700px) { .nav-cta { display:none; } }
+
+/* ── Hamburger + Mobile nav drawer ────────────────────────────────────────── */
+.hamburger {
+  display:none;flex-direction:column;gap:5px;justify-content:center;align-items:center;
+  width:36px;height:36px;background:transparent;border:none;cursor:pointer;padding:4px;
+}
+.hamburger span { display:block;width:22px;height:2px;background:white;border-radius:2px;transition:all .25s; }
+@media(max-width:600px) { .hamburger { display:flex; } }
+
+.mobile-nav {
+  display:none;flex-direction:column;gap:0;background:rgba(8,8,14,.96);
+  backdrop-filter:blur(20px);border-top:1px solid rgba(255,255,255,.08);
+}
+.mobile-nav.open { display:flex; }
+.mobile-nav a {
+  padding:16px 24px;font-size:.95rem;color:rgba(255,255,255,.8);
+  border-bottom:1px solid rgba(255,255,255,.06);transition:color .2s;
+}
+.mobile-nav a:hover { color:white; }
+.mobile-nav .mobile-nav-cta {
+  margin:12px 16px 16px;border-radius:12px;text-align:center;
+  background:var(--accent-gradient);color:#000 !important;font-weight:700;border:none;
+}
+
+/* ── Hero gradient headline ────────────────────────────────────────────────── */
+.hero-h1-gradient {
+  background:linear-gradient(135deg,#fff 30%,rgba(167,139,250,.9) 65%,rgba(243,178,255,.8) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+
+/* ── Hero trust line ───────────────────────────────────────────────────────── */
+.hero-trust-line {
+  margin-top:14px;font-size:.8rem;color:rgba(255,255,255,.55);letter-spacing:.02em;
+}
+
+/* ── Featured strip ────────────────────────────────────────────────────────── */
+.featured-strip {
+  background:var(--bg-soft);border-bottom:1px solid var(--border);padding:18px 0;
+}
+.featured-strip .container {
+  display:flex;align-items:center;gap:24px;flex-wrap:wrap;justify-content:center;
+}
+.featured-label { font-size:.75rem;font-weight:600;color:var(--text-muted);white-space:nowrap;letter-spacing:.06em;text-transform:uppercase; }
+.featured-logos { display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:center; }
+.f-logo {
+  font-size:.82rem;font-weight:700;opacity:.65;transition:opacity .2s;letter-spacing:.01em;
+  padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);
+}
+.f-logo:hover { opacity:1; }
+
+/* ── Pricing ───────────────────────────────────────────────────────────────── */
+.pricing-wrapper { display:flex;justify-content:center; }
+.pricing-card {
+  width:min(460px,100%);padding:36px;border-radius:24px;
+  border:1px solid rgba(141,92,255,.35);background:var(--card);
+  position:relative;overflow:hidden;
+}
+.pricing-card::before {
+  content:'';position:absolute;inset:0;border-radius:24px;
+  background:radial-gradient(ellipse at 50% -20%,rgba(141,92,255,.18) 0%,transparent 65%);
+  pointer-events:none;
+}
+.pricing-top { margin-bottom:28px; }
+.pricing-tier-badge {
+  display:inline-block;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.08em;
+  background:rgba(141,92,255,.2);border:1px solid rgba(141,92,255,.4);color:#c4b5fd;margin-bottom:16px;
+}
+.pricing-amount { margin-bottom:10px; }
+.pricing-price { font-size:3.2rem;font-weight:800;background:var(--accent-gradient);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1; }
+.pricing-desc { font-size:.88rem;color:var(--text-muted);margin-top:8px; }
+.pricing-features { list-style:none;padding:0;margin:0 0 28px;display:flex;flex-direction:column;gap:12px; }
+.pricing-features li { display:flex;align-items:center;gap:10px;font-size:.9rem;color:var(--text); }
+.pricing-check { width:18px;height:18px;flex-shrink:0;color:#4ade80; }
+.pricing-cta-btn {
+  display:block;width:100%;padding:13px;border-radius:14px;text-align:center;
+  background:var(--accent-gradient);color:#000;font-size:1rem;font-weight:700;transition:opacity .2s,transform .2s;
+}
+.pricing-cta-btn:hover { opacity:.9;transform:translateY(-1px); }
+.pricing-note { margin-top:16px;text-align:center;font-size:.78rem;color:var(--text-muted); }
+
+/* ── Final CTA section ─────────────────────────────────────────────────────── */
+.final-cta-section {
+  padding:100px 0;
+  background:radial-gradient(ellipse at 50% 100%,rgba(141,92,255,.18) 0%,transparent 60%),var(--bg-soft);
+  border-top:1px solid var(--border);
+}
+.final-cta-inner {
+  display:flex;flex-direction:column;align-items:center;text-align:center;gap:16px;position:relative;
+}
+.final-cta-glow {
+  position:absolute;width:600px;height:300px;top:-80px;left:50%;transform:translateX(-50%);
+  background:radial-gradient(ellipse,rgba(141,92,255,.22) 0%,transparent 70%);
+  pointer-events:none;
+}
+.final-cta-inner h2 { font-size:clamp(2rem,4vw,3.2rem);max-width:680px; }
+.final-cta-inner > p { font-size:1.05rem;color:var(--text-muted);max-width:480px; }
+.final-cta-btn { font-size:1.15rem;padding:16px 40px;border-radius:999px; }
+.final-cta-note { font-size:.8rem;color:var(--text-muted);margin-top:4px; }
+
+/* ── FAQ accordion ─────────────────────────────────────────────────────────── */
+.faq-list { display:flex;flex-direction:column;gap:0;max-width:760px;margin:0 auto;
+  border:1px solid var(--border);border-radius:18px;overflow:hidden; }
+.faq-item { border-bottom:1px solid var(--border);background:var(--card); }
+.faq-item:last-child { border-bottom:none; }
+.faq-q {
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:20px 24px;background:transparent;border:none;color:var(--text);
+  font-size:.95rem;font-weight:600;cursor:pointer;text-align:left;transition:color .2s;
+}
+.faq-q:hover { color:var(--accent); }
+.faq-chevron { width:18px;height:18px;flex-shrink:0;color:var(--text-muted);
+  transition:transform .3s ease; }
+.faq-item.open .faq-chevron { transform:rotate(180deg); }
+.faq-a { max-height:0;overflow:hidden;transition:max-height .35s ease,padding .35s ease; }
+.faq-item.open .faq-a { max-height:300px; }
+.faq-a p { padding:0 24px 20px;color:var(--text-muted);font-size:.88rem;line-height:1.65;margin:0; }
+
+/* ── Testimonial stars ─────────────────────────────────────────────────────── */
+.t-stars { font-size:.9rem;color:#fbbf24;letter-spacing:2px;margin-bottom:12px; }
+
+/* ── Fade-up animation ─────────────────────────────────────────────────────── */
+.fade-up { opacity:0;transform:translateY(28px);transition:opacity .65s ease,transform .65s ease; }
+.fade-up.visible { opacity:1;transform:translateY(0); }
 </style>
