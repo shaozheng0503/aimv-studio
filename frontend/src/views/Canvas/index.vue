@@ -186,6 +186,42 @@ const showGuide    = ref(false)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const pollingIntervals: Record<string, ReturnType<typeof setInterval>> = {}
 
+// ─── undo / redo ───────────────────────────────────────────────────────────
+const MAX_HISTORY = 30
+const undoStack = ref<Array<{ nodes: any[]; edges: any[] }>>([])
+const redoStack = ref<Array<{ nodes: any[]; edges: any[] }>>([])
+
+function _snapshot() {
+  return {
+    nodes: JSON.parse(JSON.stringify(nodes.value.filter((n: any) => n.type !== 'zone'))),
+    edges: JSON.parse(JSON.stringify(edges.value)),
+  }
+}
+
+function pushHistory() {
+  undoStack.value.push(_snapshot())
+  if (undoStack.value.length > MAX_HISTORY) undoStack.value.shift()
+  redoStack.value = []
+}
+
+function undo() {
+  if (!undoStack.value.length) return
+  redoStack.value.push(_snapshot())
+  const prev = undoStack.value.pop()!
+  const zoneNodes = initialNodes.filter((n: any) => n.type === 'zone')
+  nodes.value = [...zoneNodes, ...prev.nodes]
+  edges.value = prev.edges
+}
+
+function redo() {
+  if (!redoStack.value.length) return
+  undoStack.value.push(_snapshot())
+  const next = redoStack.value.pop()!
+  const zoneNodes = initialNodes.filter((n: any) => n.type === 'zone')
+  nodes.value = [...zoneNodes, ...next.nodes]
+  edges.value = next.edges
+}
+
 // ─── generation status summary ────────────────────────────────────────────
 const shotStats = computed(() => {
   const shots = nodes.value.filter(n => n.type === 'shot')
@@ -348,6 +384,7 @@ function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
     scene: { name: '新场景', style: '', location: '', lighting: '' },
   }[type]
 
+  pushHistory()
   nodes.value = [...nodes.value, {
     id, type,
     position: { x: 500 + Math.random() * 260 - 130, y: 250 + Math.random() * 200 - 100 },
@@ -359,6 +396,7 @@ function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
 function duplicateShot() {
   const node = selectedNode.value
   if (!node || node.type !== 'shot') return
+  pushHistory()
   const id = `shot-${Date.now()}`
   const shotCount = nodes.value.filter(n => n.type === 'shot').length
   nodes.value = [...nodes.value, {
@@ -383,6 +421,7 @@ function deleteSelectedNode() {
   if (!id) return
   const node = nodes.value.find(n => n.id === id)
   if (!node || node.type === 'zone') return
+  pushHistory()
   nodes.value = nodes.value.filter(n => n.id !== id)
   edges.value = edges.value.filter(e => e.source !== id && e.target !== id)
   selectedNodeId.value = null
@@ -396,9 +435,10 @@ function handleConnect(connection: any) {
   const tgt = nodes.value.find(n => n.id === connection.target)
   if (!src || !tgt || src.type === 'zone' || tgt.type === 'zone') return
 
-  // Prevent duplicate edges
   const dup = edges.value.some(e => e.source === connection.source && e.target === connection.target)
   if (dup) return
+
+  pushHistory()
 
   let edgeType = 'sequence'
   let style = EQ
@@ -423,15 +463,45 @@ function handleConnect(connection: any) {
 function deleteSelectedEdge() {
   const id = selectedEdgeId.value
   if (!id) return
+  pushHistory()
   edges.value = edges.value.filter(e => e.id !== id)
   selectedEdgeId.value = null
 }
 
 function onKeydown(e: KeyboardEvent) {
+  const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)
+  // Undo / Redo
+  if ((e.metaKey || e.ctrlKey) && !inInput) {
+    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return }
+    if (e.key === 'z' &&  e.shiftKey) { e.preventDefault(); redo(); return }
+    if (e.key === 'y')                { e.preventDefault(); redo(); return }
+  }
   if (e.key !== 'Delete' && e.key !== 'Backspace') return
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return
+  if (inInput) return
   if (selectedNodeId.value) deleteSelectedNode()
   else if (selectedEdgeId.value) deleteSelectedEdge()
+}
+
+// ─── AI prompt suggest ────────────────────────────────────────────────────
+const suggestingPrompt = ref(false)
+
+async function suggestPrompt() {
+  if (!selectedNodeId.value || !projectId) return
+  const node = selectedNode.value
+  if (!node || node.type !== 'shot') return
+  suggestingPrompt.value = true
+  try {
+    const { data } = await api.post(`/projects/${projectId}/canvas/prompt-suggest`, {
+      shot_index: node.data.index ?? 1,
+      canvas_context: generationPayload.value?.canvas_context ?? {},
+      existing_prompt: node.data.prompt ?? '',
+    })
+    updateNodeData(selectedNodeId.value, { prompt: data.prompt })
+  } catch {
+    ElMessage.error('AI 生成失败，请稍后重试')
+  } finally {
+    suggestingPrompt.value = false
+  }
 }
 
 // ─── storyboard → canvas import ───────────────────────────────────────────
@@ -712,6 +782,145 @@ function connectWS() {
   }
 }
 
+// ─── canvas templates ─────────────────────────────────────────────────────
+const showTemplates = ref(false)
+
+const TEMPLATES = [
+  {
+    id: 'lyrical',
+    name: '抒情情歌',
+    desc: '慢节奏抒情 — 音乐 + 角色 + 3 个情感镜头',
+    icon: '💿',
+    nodes: [
+      { id: 'tpl-song1', type: 'song', position: { x: 80, y: 80 },
+        data: { title: '思念', mood: 'melancholic', bpm: 76, duration: 240, genre: 'Pop' } },
+      { id: 'tpl-char1', type: 'char', position: { x: 80, y: 300 },
+        data: { name: '女主角', description: '情感丰富的女性角色', loraId: '', gender: 'female' } },
+      { id: 'tpl-scene1', type: 'scene', position: { x: 400, y: 80 },
+        data: { name: '海边黄昏', style: '写实主义', location: '海边', lighting: '暖色夕阳' } },
+      { id: 'tpl-s1', type: 'shot', position: { x: 690, y: 50 },
+        data: { index: 1, status: 'pending', duration: 6, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#1a1a2e,#2d1b69)',
+          prompt: '海边，女孩站在浪旁，长焦背影拍摄，暖色夕阳余晖' } },
+      { id: 'tpl-s2', type: 'shot', position: { x: 690, y: 240 },
+        data: { index: 2, status: 'pending', duration: 5, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#14213d,#0d1b2a)',
+          prompt: '特写，女孩泪眼模糊，慢动作，浅景深背景虚化，柔光' } },
+      { id: 'tpl-s3', type: 'shot', position: { x: 690, y: 430 },
+        data: { index: 3, status: 'pending', duration: 7, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#1b1b2f,#162447)',
+          prompt: '俯拍，女孩独自沿海边走向远方，画面渐渐暗淡' } },
+    ],
+    edges: [
+      { id: 'te-m1', source: 'tpl-song1', target: 'tpl-s1', type: 'smoothstep', animated: true,  style: EM, data: { edgeType: 'music-ref' } },
+      { id: 'te-m2', source: 'tpl-song1', target: 'tpl-s2', type: 'smoothstep', animated: true,  style: EM, data: { edgeType: 'music-ref' } },
+      { id: 'te-c1', source: 'tpl-char1', target: 'tpl-s1', type: 'smoothstep', animated: false, style: EC, data: { edgeType: 'char-ref' } },
+      { id: 'te-c2', source: 'tpl-char1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: EC, data: { edgeType: 'char-ref' } },
+      { id: 'te-c3', source: 'tpl-char1', target: 'tpl-s3', type: 'smoothstep', animated: false, style: EC, data: { edgeType: 'char-ref' } },
+      { id: 'te-sc1', source: 'tpl-scene1', target: 'tpl-s1', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc2', source: 'tpl-scene1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-q1', source: 'tpl-s1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+      { id: 'te-q2', source: 'tpl-s2', target: 'tpl-s3', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+    ],
+  },
+  {
+    id: 'rhythm',
+    name: '节拍律动',
+    desc: '电子音乐卡点快剪 — 4 个节奏镜头锁定音乐节拍',
+    icon: '🎧',
+    nodes: [
+      { id: 'tpl-song1', type: 'song', position: { x: 80, y: 80 },
+        data: { title: '霓虹节拍', mood: 'energetic', bpm: 130, duration: 180, genre: 'Electronic' } },
+      { id: 'tpl-scene1', type: 'scene', position: { x: 80, y: 300 },
+        data: { name: '都市街道夜景', style: '赛博朋克', location: '城市', lighting: '霓虹灯光' } },
+      { id: 'tpl-s1', type: 'shot', position: { x: 420, y: 50 },
+        data: { index: 1, status: 'pending', duration: 3, model: 'Seedance 2.0', timeAnchor: 0, segment: '前奏',
+          gradient: 'linear-gradient(135deg,#0d0d18,#1a2a4a)',
+          prompt: '城市全景夜景，霓虹闪烁，镜头快速推进' } },
+      { id: 'tpl-s2', type: 'shot', position: { x: 420, y: 220 },
+        data: { index: 2, status: 'pending', duration: 3, model: 'Seedance 2.0', timeAnchor: 28, segment: 'A段',
+          gradient: 'linear-gradient(135deg,#1a1a2e,#4a1942)',
+          prompt: '街头舞者卡点动作爆发，霓虹背景，仰拍' } },
+      { id: 'tpl-s3', type: 'shot', position: { x: 700, y: 50 },
+        data: { index: 3, status: 'pending', duration: 3, model: 'Seedance 2.0', timeAnchor: 56, segment: '高潮',
+          gradient: 'linear-gradient(135deg,#251b37,#533483)',
+          prompt: '特效爆破，舞台干冰喷发，快速剪辑卡点' } },
+      { id: 'tpl-s4', type: 'shot', position: { x: 700, y: 220 },
+        data: { index: 4, status: 'pending', duration: 3, model: 'Seedance 2.0', timeAnchor: 84, segment: 'C段',
+          gradient: 'linear-gradient(135deg,#314755,#26a0da)',
+          prompt: '慢动作收尾，城市灯光倒影，镜头缓缓拉远' } },
+    ],
+    edges: [
+      { id: 'te-m1', source: 'tpl-song1', target: 'tpl-s1', type: 'smoothstep', animated: true,  style: EM, data: { edgeType: 'music-ref' } },
+      { id: 'te-m2', source: 'tpl-song1', target: 'tpl-s2', type: 'smoothstep', animated: true,  style: EM, data: { edgeType: 'music-ref' } },
+      { id: 'te-m3', source: 'tpl-song1', target: 'tpl-s3', type: 'smoothstep', animated: true,  style: EM, data: { edgeType: 'music-ref' } },
+      { id: 'te-m4', source: 'tpl-song1', target: 'tpl-s4', type: 'smoothstep', animated: true,  style: EM, data: { edgeType: 'music-ref' } },
+      { id: 'te-sc1', source: 'tpl-scene1', target: 'tpl-s1', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc2', source: 'tpl-scene1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc3', source: 'tpl-scene1', target: 'tpl-s3', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc4', source: 'tpl-scene1', target: 'tpl-s4', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-q1', source: 'tpl-s1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+      { id: 'te-q2', source: 'tpl-s2', target: 'tpl-s3', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+      { id: 'te-q3', source: 'tpl-s3', target: 'tpl-s4', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+    ],
+  },
+  {
+    id: 'cinematic',
+    name: '电影叙事',
+    desc: '无音乐参考，纯场景叙事，5 个宽画幅镜头',
+    icon: '🎬',
+    nodes: [
+      { id: 'tpl-char1', type: 'char', position: { x: 80, y: 80 },
+        data: { name: '孤独旅人', description: '沉默寡言、内心复杂的主角', loraId: '', gender: 'male' } },
+      { id: 'tpl-scene1', type: 'scene', position: { x: 80, y: 300 },
+        data: { name: '荒野公路', style: '极简主义', location: '荒野', lighting: '黄金时段自然光' } },
+      { id: 'tpl-s1', type: 'shot', position: { x: 420, y: 50 },
+        data: { index: 1, status: 'pending', duration: 7, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#1a1a2e,#16213e)',
+          prompt: '宽画幅，主角站在荒野公路尽头，仰角，黄金时段逆光剪影' } },
+      { id: 'tpl-s2', type: 'shot', position: { x: 420, y: 240 },
+        data: { index: 2, status: 'pending', duration: 6, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#14213d,#0d1b2a)',
+          prompt: '中景跟拍，主角缓缓行走，沙尘在脚边飞舞，镜头平移' } },
+      { id: 'tpl-s3', type: 'shot', position: { x: 420, y: 430 },
+        data: { index: 3, status: 'pending', duration: 5, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#251b37,#1a1a2e)',
+          prompt: '微距特写，主角手指捡起一枚硬币，岩石粗糙纹理清晰可见' } },
+      { id: 'tpl-s4', type: 'shot', position: { x: 720, y: 130 },
+        data: { index: 4, status: 'pending', duration: 6, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#1b1b2f,#162447)',
+          prompt: '主观视角，地平线上一座城市轮廓，热浪虚影，广角镜头' } },
+      { id: 'tpl-s5', type: 'shot', position: { x: 720, y: 330 },
+        data: { index: 5, status: 'pending', duration: 8, model: 'Veo 3.1', timeAnchor: null, segment: null,
+          gradient: 'linear-gradient(135deg,#314755,#26a0da)',
+          prompt: '大远景航拍，主角渺小身影走向城市地平线，画面渐暗' } },
+    ],
+    edges: [
+      { id: 'te-c1', source: 'tpl-char1', target: 'tpl-s1', type: 'smoothstep', animated: false, style: EC, data: { edgeType: 'char-ref' } },
+      { id: 'te-c2', source: 'tpl-char1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: EC, data: { edgeType: 'char-ref' } },
+      { id: 'te-c3', source: 'tpl-char1', target: 'tpl-s3', type: 'smoothstep', animated: false, style: EC, data: { edgeType: 'char-ref' } },
+      { id: 'te-sc1', source: 'tpl-scene1', target: 'tpl-s1', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc2', source: 'tpl-scene1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc4', source: 'tpl-scene1', target: 'tpl-s4', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-sc5', source: 'tpl-scene1', target: 'tpl-s5', type: 'smoothstep', animated: false, style: ES, data: { edgeType: 'scene-ref' } },
+      { id: 'te-q1', source: 'tpl-s1', target: 'tpl-s2', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+      { id: 'te-q2', source: 'tpl-s2', target: 'tpl-s3', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+      { id: 'te-q3', source: 'tpl-s3', target: 'tpl-s4', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+      { id: 'te-q4', source: 'tpl-s4', target: 'tpl-s5', type: 'smoothstep', animated: false, style: EQ, data: { edgeType: 'sequence' } },
+    ],
+  },
+] as const
+
+function applyTemplate(tpl: typeof TEMPLATES[number]) {
+  pushHistory()
+  const zoneNodes = initialNodes.filter((n: any) => n.type === 'zone')
+  nodes.value = [...zoneNodes, ...tpl.nodes.map(n => ({ ...n }))]
+  edges.value = [...tpl.edges.map(e => ({ ...e }))]
+  showGuide.value = false
+  showTemplates.value = false
+  setTimeout(() => fitView({ padding: 0.14 }), 160)
+}
+
 onMounted(() => {
   loadCanvas()
   connectWS()
@@ -737,6 +946,10 @@ onUnmounted(() => {
       <span class="project-name">{{ projectTitle || 'AIMV Canvas' }}</span>
       <div class="topbar-center">
         <span class="canvas-badge">&#x2728; 自由画布</span>
+        <div class="undo-redo">
+          <button class="ur-btn" :disabled="!undoStack.length" @click="undo()" title="撤销 (Ctrl+Z)">&#x21B6;</button>
+          <button class="ur-btn" :disabled="!redoStack.length" @click="redo()" title="重做 (Ctrl+Y)">&#x21B7;</button>
+        </div>
       </div>
       <div class="topbar-right">
         <!-- Edge legend -->
@@ -821,12 +1034,23 @@ onUnmounted(() => {
           </div>
 
           <div class="panel-section">
-            <label>Prompt</label>
+            <div class="prompt-label-row">
+              <label>Prompt</label>
+              <button
+                class="btn-ai-suggest"
+                :disabled="suggestingPrompt"
+                @click="suggestPrompt()"
+                title="根据上下文 AI 生成 Prompt"
+              >
+                <span v-if="suggestingPrompt">生成中…</span>
+                <span v-else>✨ AI 生成</span>
+              </button>
+            </div>
             <textarea
               class="panel-input"
               rows="4"
               :value="(selectedNode.data.prompt as string)"
-              placeholder="描述这个镜头的画面..."
+              placeholder="描述这个镜头的画面，或点击「✨ AI 生成」自动填写…"
               @input="updateNodeData(selectedNodeId!, { prompt: ($event.target as HTMLTextAreaElement).value })"
             />
           </div>
@@ -1220,9 +1444,27 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Template picker -->
+          <div class="guide-tpl-section">
+            <div class="guide-tpl-title">或从模板快速开始</div>
+            <div class="guide-tpl-grid">
+              <div
+                v-for="tpl in TEMPLATES"
+                :key="tpl.id"
+                class="guide-tpl-card"
+                @click="applyTemplate(tpl)"
+              >
+                <div class="gtc-icon">{{ tpl.icon }}</div>
+                <div class="gtc-name">{{ tpl.name }}</div>
+                <div class="gtc-desc">{{ tpl.desc }}</div>
+                <div class="gtc-use">使用此模板 →</div>
+              </div>
+            </div>
+          </div>
+
           <div class="guide-footer">
             <div class="guide-tip">💡 点击节点查看详情，拖拽连线传递上下文，时间轴锁点对齐音乐节拍</div>
-            <button class="guide-start" @click="showGuide = false">我知道了，开始创作 →</button>
+            <button class="guide-start" @click="showGuide = false">我知道了，从空白开始 →</button>
           </div>
         </div>
       </div>
@@ -1699,4 +1941,57 @@ label {
   border-radius: 8px; cursor: pointer; white-space: nowrap;
 }
 .btn-import:hover { border-color: rgba(255,255,255,.4); color: white; }
+
+/* undo / redo buttons */
+.undo-redo { display: flex; gap: 4px; margin-left: 10px; }
+.ur-btn {
+  width: 28px; height: 28px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.15); background: transparent;
+  color: rgba(255,255,255,.45); font-size: 1rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.ur-btn:disabled { opacity: .22; cursor: not-allowed; }
+.ur-btn:not(:disabled):hover { border-color: rgba(141,92,255,.55); color: #c4b5fd; }
+
+/* prompt label row (label + AI suggest button) */
+.prompt-label-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 5px;
+}
+.prompt-label-row label { margin-bottom: 0; }
+.btn-ai-suggest {
+  padding: 2px 10px; font-size: .72rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(243,178,255,.3); color: #f3b2ff;
+  background: rgba(243,178,255,.08); font-weight: 600; white-space: nowrap;
+  transition: all .15s;
+}
+.btn-ai-suggest:disabled { opacity: .4; cursor: not-allowed; }
+.btn-ai-suggest:not(:disabled):hover { background: rgba(243,178,255,.2); border-color: rgba(243,178,255,.6); }
+
+/* canvas template section in guide */
+.guide-tpl-section {
+  margin-top: 28px; padding-top: 24px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.guide-tpl-title {
+  font-size: .8rem; color: rgba(255,255,255,.35);
+  text-align: center; margin-bottom: 14px; letter-spacing: .04em;
+}
+.guide-tpl-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.guide-tpl-card {
+  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 12px; padding: 16px 14px; cursor: pointer; transition: all .2s;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.guide-tpl-card:hover {
+  border-color: rgba(141,92,255,.45); background: rgba(141,92,255,.07);
+}
+.gtc-icon { font-size: 1.5rem; margin-bottom: 2px; }
+.gtc-name { font-size: .88rem; font-weight: 700; color: rgba(255,255,255,.9); }
+.gtc-desc { font-size: .72rem; color: rgba(255,255,255,.4); line-height: 1.45; }
+.gtc-use  { font-size: .72rem; color: #a78bfa; margin-top: 4px; font-weight: 600; opacity: 0; transition: opacity .2s; }
+.guide-tpl-card:hover .gtc-use { opacity: 1; }
 </style>
