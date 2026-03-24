@@ -52,3 +52,23 @@ def upload_file(local_path: str, content_type: str = "application/octet-stream")
 
     protocol = "https" if settings.minio_secure else "http"
     return f"{protocol}://{settings.minio_endpoint}/{settings.minio_bucket}/{object_name}"
+
+
+def delete_objects(urls: list[str]) -> None:
+    """Delete a list of objects from MinIO given their public URLs. Ignores errors."""
+    if not urls:
+        return
+    settings = get_settings()
+    client = get_minio_client()
+    prefix = f"/{settings.minio_bucket}/"
+    for url in urls:
+        try:
+            # Extract object name: everything after /<bucket>/
+            idx = url.find(prefix)
+            if idx == -1:
+                continue
+            object_name = url[idx + len(prefix):]
+            if object_name:
+                client.remove_object(settings.minio_bucket, object_name)
+        except Exception:
+            pass

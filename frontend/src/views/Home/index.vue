@@ -230,32 +230,179 @@ const lyricIndex = ref(0)
 // ─── model matrix ─────────────────────────────────────────────────────────────
 const modelTab = ref<'image' | 'video' | 'music'>('video')
 
-const modelData = computed(() => ({
-  image: [
-    { name: 'Z-image', license: 'open', tag: lang.value === 'zh' ? '本地部署' : 'Self-hosted', desc: lang.value === 'zh' ? 'Stable Diffusion 架构，通过 WebUI API 本地运行，零 API 费用，完全可控。' : 'Stable Diffusion architecture, runs locally via WebUI API. Zero API cost, full control.' },
-  ],
-  video: [
-    { name: 'Wan2.2 14B', license: 'open', tag: lang.value === 'zh' ? '开源 4K' : 'Open 4K', desc: lang.value === 'zh' ? '14B 参数开源视频模型，Apache 2.0 授权，支持 4K 分辨率，本地运行。' : '14B param open-source model, Apache 2.0, 4K resolution, runs locally.' },
-    { name: 'Seedance 2.0', license: 'commercial', tag: lang.value === 'zh' ? '极速' : 'Fast', desc: lang.value === 'zh' ? '字节跳动极速视频模型，高动态音乐视频首选。' : "ByteDance's fast video model. Best for high-motion music videos." },
-    { name: 'Veo 3.1', license: 'commercial', tag: lang.value === 'zh' ? '高质量' : 'HQ', desc: lang.value === 'zh' ? 'Google 视频模型，时序一致性出色，人物运动流畅。' : "Google's model with excellent temporal consistency and smooth motion." },
-    { name: 'Grok Video 1.0', license: 'commercial', tag: lang.value === 'zh' ? '创意' : 'Creative', desc: lang.value === 'zh' ? 'xAI 视频模型，创意解读能力强，风格化效果突出。' : "xAI's model with strong creative interpretation and stylization." },
-  ],
-  music: [
-    { name: 'ACEStep 1.5', license: 'open', tag: lang.value === 'zh' ? '本地部署' : 'Self-hosted', desc: lang.value === 'zh' ? '高质量音乐生成，本地运行，完全控制风格与时长。' : 'High-quality music generation, runs locally. Full control over style and duration.' },
-    { name: 'Suno', license: 'commercial', tag: lang.value === 'zh' ? '高质量' : 'HQ', desc: lang.value === 'zh' ? '顶级人声与制作质量，流行/电子/嘻哈风格首选。' : 'Best-in-class vocals and production. Top choice for pop/EDM/hip-hop.' },
-    { name: 'Google Lyria', license: 'commercial', tag: lang.value === 'zh' ? '交响乐' : 'Orchestral', desc: lang.value === 'zh' ? '擅长交响乐与复杂编曲，史诗感 MV 的理想选择。' : 'Specialized in orchestral and complex arrangements. Ideal for epic MVs.' },
-  ],
-}))
+const modelData = computed(() => {
+  const zh = lang.value === 'zh'
+  return {
+    image: [
+      {
+        name: 'Z-image', license: 'open', color: '#4ade80',
+        tag: zh ? '本地部署' : 'Self-hosted',
+        specs: zh ? ['SD 架构', 'WebUI API', '零费用'] : ['SD arch', 'WebUI API', 'Free'],
+        bestFor: zh ? '角色参考图 · 快速迭代' : 'Character refs · Fast iteration',
+        desc: zh ? 'Stable Diffusion 架构，通过 WebUI API 本地运行，零 API 费用，完全可控。' : 'Stable Diffusion architecture, runs locally via WebUI API. Zero API cost, full control.',
+      },
+      {
+        name: 'FLUX.1 Dev', license: 'open', color: '#818cf8',
+        tag: zh ? '顶级质量' : 'Top Quality',
+        specs: zh ? ['12B 参数', '1024px', 'Apache 2.0'] : ['12B params', '1024px', 'Apache 2.0'],
+        bestFor: zh ? '高细节写实 · 复杂场景构图' : 'Photorealistic · Complex composition',
+        desc: zh ? 'Black Forest Labs 出品，12B 参数扩散模型，图像细节与结构质量均居开源前列。' : 'By Black Forest Labs. 12B-param diffusion model — state-of-the-art detail and structure quality.',
+      },
+      {
+        name: 'Stable Diffusion 3.5', license: 'open', color: '#fb923c',
+        tag: zh ? '开源' : 'Open Source',
+        specs: zh ? ['8B / 2.5B 版本', '多提示词文本框', '本地/云端'] : ['8B / 2.5B', 'Multi-prompt', 'Local / Cloud'],
+        bestFor: zh ? '风格化插画 · 国风 · 幻想场景' : 'Stylized art · Fantasy · Ink painting',
+        desc: zh ? 'Stability AI 最新 MMDiT 架构，文字渲染与多主体场景表现更强，风格化效果突出。' : "Stability AI's MMDiT architecture. Better text rendering and multi-subject scenes.",
+      },
+      {
+        name: 'DALL-E 3', license: 'commercial', color: '#22d3ee',
+        tag: zh ? '强提示词遵循' : 'Prompt-faithful',
+        specs: zh ? ['OpenAI', '1024 / 1792px', 'API 调用'] : ['OpenAI', '1024 / 1792px', 'API call'],
+        bestFor: zh ? '精准叙事镜头 · 品牌物料' : 'Precise narrative shots · Brand assets',
+        desc: zh ? 'OpenAI 旗舰图像模型，提示词遵循度极高，适合需要精准表达创意意图的叙事镜头。' : "OpenAI's flagship image model with the highest prompt fidelity. Best for precise narrative shots.",
+      },
+      {
+        name: 'Midjourney v6', license: 'commercial', color: '#f472b6',
+        tag: zh ? '最佳美学' : 'Best Aesthetic',
+        specs: zh ? ['v6.1 权重', '1:1 / 2:3 / 16:9', 'Discord / API'] : ['v6.1 weights', '1:1 / 2:3 / 16:9', 'Discord / API'],
+        bestFor: zh ? 'K-Pop · 时尚大片 · 广告视觉' : 'K-Pop · Fashion editorial · Ad visuals',
+        desc: zh ? '公认美学质量最强的商业图像模型，风格迁移与人物写真效果尤其出色。' : 'Industry-leading aesthetic quality. Exceptional for style transfer and portrait photography.',
+      },
+    ],
+    video: [
+      {
+        name: 'Wan2.2 14B', license: 'open', color: '#4ade80',
+        tag: zh ? '开源 4K' : 'Open 4K',
+        specs: zh ? ['14B 参数', '4K 分辨率', 'Apache 2.0'] : ['14B params', '4K res', 'Apache 2.0'],
+        bestFor: zh ? '国风 · 独立电影 · 长场景' : 'Indie · Classical · Long clips',
+        desc: zh ? '14B 参数开源视频模型，Apache 2.0 授权，支持 4K 分辨率，适合本地部署的团队。' : '14B param open-source model, Apache 2.0, 4K resolution — ideal for self-hosted pipelines.',
+      },
+      {
+        name: 'Seedance 2.0', license: 'commercial', color: '#60a5fa',
+        tag: zh ? '极速' : 'Fast',
+        specs: zh ? ['字节跳动', '< 30s 生成', '1080p'] : ['ByteDance', '< 30s gen', '1080p'],
+        bestFor: zh ? 'K-Pop · 电子舞曲 · 高动态镜头' : 'K-Pop · EDM · High motion clips',
+        desc: zh ? '字节跳动极速视频模型，高动态与舞蹈类 MV 首选，生成速度业界领先。' : "ByteDance's fastest video model — top choice for high-motion and dance music videos.",
+      },
+      {
+        name: 'Veo 3.1', license: 'commercial', color: '#f59e0b',
+        tag: zh ? '高质量' : 'HQ',
+        specs: zh ? ['Google DeepMind', '1080p 60fps', '时序一致性'] : ['Google DeepMind', '1080p 60fps', 'Temporal cons.'],
+        bestFor: zh ? '人物近景 · 情感叙事 · 流畅动作' : 'Close-ups · Emotion · Fluid motion',
+        desc: zh ? 'Google DeepMind 视频模型，时序一致性出色，人物运动流畅，情感叙事类 MV 首选。' : "Google DeepMind's model — excellent temporal consistency and smooth motion for narrative MVs.",
+      },
+      {
+        name: 'Grok Video 1.0', license: 'commercial', color: '#e879f9',
+        tag: zh ? '创意' : 'Creative',
+        specs: zh ? ['xAI', '风格化优先', 'API 调用'] : ['xAI', 'Style-first', 'API call'],
+        bestFor: zh ? '赛博朋克 · 抽象艺术 · 奇幻风格' : 'Cyberpunk · Abstract · Fantasy',
+        desc: zh ? 'xAI 视频模型，创意解读能力强，赛博朋克与强风格化效果表现尤为突出。' : "xAI's video model with strong creative interpretation — best for cyberpunk and stylized scenes.",
+      },
+      {
+        name: 'Kling 2.0', license: 'commercial', color: '#f87171',
+        tag: zh ? '高动态' : 'High Motion',
+        specs: zh ? ['快手', '5s / 10s', '1080p'] : ['Kuaishou', '5s / 10s', '1080p'],
+        bestFor: zh ? '舞蹈编排 · 动感镜头 · 运动追踪' : 'Choreography · Action · Motion tracking',
+        desc: zh ? '快手 Kling 2.0，舞蹈与人体动作生成质量优异，是编舞类 MV 的专属利器。' : "Kuaishou's Kling 2.0 excels at human body motion — the go-to model for dance choreography MVs.",
+      },
+      {
+        name: 'CogVideoX 5B', license: 'open', color: '#34d399',
+        tag: zh ? '开源' : 'Open Source',
+        specs: zh ? ['智谱 AI', '5B 参数', '720p · Apache 2.0'] : ['Zhipu AI', '5B params', '720p · Apache 2.0'],
+        bestFor: zh ? '国风 · 复古迪斯科 · 写实场景' : 'Classical · Retro · Realistic scenes',
+        desc: zh ? '智谱 AI 开源视频模型，720p 输出，对国风与写实场景理解精准，零成本本地部署。' : 'Zhipu AI open-source model. 720p output — great understanding of realistic and classical scenes.',
+      },
+    ],
+    music: [
+      {
+        name: 'ACEStep 1.5', license: 'open', color: '#4ade80',
+        tag: zh ? '本地部署' : 'Self-hosted',
+        specs: zh ? ['本地运行', '全风格', '时长可控'] : ['Local run', 'All genres', 'Ctrl duration'],
+        bestFor: zh ? '仅配乐 · 器乐背景音 · 隐私优先' : 'Instrumental BGM · Privacy-first',
+        desc: zh ? '高质量音乐生成，本地运行，完全控制风格与时长，无任何 API 费用。' : 'High-quality music generation, runs locally. Full style and duration control, zero API cost.',
+      },
+      {
+        name: 'Suno v4', license: 'commercial', color: '#fb923c',
+        tag: zh ? '顶级人声' : 'HQ Vocals',
+        specs: zh ? ['有/无人声', '流行/EDM/嘻哈', '< 10s 生成'] : ['Vocal / Inst.', 'Pop/EDM/Hip-hop', '< 10s gen'],
+        bestFor: zh ? '流行 · K-Pop · R&B · 嘻哈' : 'Pop · K-Pop · R&B · Hip-hop',
+        desc: zh ? 'Suno v4 人声质量与制作细节行业顶尖，流行与电子类 MV 背景乐首选。' : 'Industry-best vocal quality and production detail. Top choice for pop and EDM MVs.',
+      },
+      {
+        name: 'Google Lyria', license: 'commercial', color: '#60a5fa',
+        tag: zh ? '交响乐' : 'Orchestral',
+        specs: zh ? ['Google DeepMind', '交响 · 管弦', '多乐器层次'] : ['Google DeepMind', 'Symphonic', 'Multi-instrument'],
+        bestFor: zh ? '史诗 MV · 古典 · 影视配乐' : 'Epic · Classical · Cinematic score',
+        desc: zh ? 'Google DeepMind 出品，擅长交响乐与复杂编曲，史诗感 MV 的理想选择。' : 'Specialized in orchestral and complex arrangements. Ideal for epic cinematic MVs.',
+      },
+      {
+        name: 'Udio', license: 'commercial', color: '#c084fc',
+        tag: zh ? '音乐性强' : 'Musical Depth',
+        specs: zh ? ['人声/无人声', '高动态范围', '实验性流派'] : ['Vocal / Inst.', 'High dynamic range', 'Experimental'],
+        bestFor: zh ? '实验电子 · 爵士 · 融合流派' : 'Experimental · Jazz · Fusion genres',
+        desc: zh ? '音乐性与音色质量出色，对爵士、融合与实验电子等复杂流派的理解尤为深刻。' : 'Exceptional musicality and timbre. Best for jazz fusion and experimental electronic genres.',
+      },
+      {
+        name: 'MusicGen Large', license: 'open', color: '#34d399',
+        tag: zh ? '开源' : 'Open Source',
+        specs: zh ? ['Meta AI', '3.3B 参数', '单/立体声'] : ['Meta AI', '3.3B params', 'Mono / Stereo'],
+        bestFor: zh ? '器乐背景 · 氛围音效 · 学术研究' : 'Instrumental · Ambient · Research',
+        desc: zh ? 'Meta AI 开源音乐模型，无人声器乐生成能力强，适合纯配乐类 MV 与低成本制作。' : "Meta AI's open-source model — excellent for instrumental generation, great for budget productions.",
+      },
+      {
+        name: 'YuE', license: 'open', color: '#f472b6',
+        tag: zh ? '中文首选' : 'CN Optimized',
+        specs: zh ? ['开源', '中英双语', '歌词驱动'] : ['Open source', 'ZH / EN bilingual', 'Lyrics-aware'],
+        bestFor: zh ? '国风 · 中文流行 · 古典融合' : 'C-Pop · Chinese Classical · Fusion',
+        desc: zh ? '专为中文音乐优化的开源大模型，支持歌词驱动生成，国风与中文流行 MV 首选。' : 'Open-source model optimized for Chinese music. Lyrics-driven generation for C-Pop and Classical MVs.',
+      },
+    ],
+  }
+})
 
 // ─── export presets ───────────────────────────────────────────────────────────
-const exportPresets = computed(() => [
-  { id: 'douyin',      name: lang.value === 'zh' ? '抖音' : 'Douyin',      ratio: '9:16', w: 1080, h: 1920, bitrate: '4M',   rw: 9,  rh: 16 },
-  { id: 'bilibili',    name: 'Bilibili',                                     ratio: '16:9', w: 1920, h: 1080, bitrate: '6M',   rw: 16, rh: 9  },
-  { id: 'youtube',     name: 'YouTube HQ',                                   ratio: '16:9', w: 1920, h: 1080, bitrate: '8M',   rw: 16, rh: 9  },
-  { id: 'xiaohongshu', name: lang.value === 'zh' ? '小红书' : 'Xiaohongshu', ratio: '3:4',  w: 1080, h: 1440, bitrate: '4M',   rw: 3,  rh: 4  },
-  { id: 'instagram',   name: 'Instagram',                                    ratio: '9:16', w: 1080, h: 1920, bitrate: '3.5M', rw: 9,  rh: 16 },
-  { id: 'original',    name: lang.value === 'zh' ? '原始输出' : 'Original',  ratio: '—',    w: 0,    h: 0,    bitrate: '—',    rw: 16, rh: 9  },
-])
+const exportPresets = computed(() => {
+  const zh = lang.value === 'zh'
+  return [
+    {
+      id: 'douyin', name: zh ? '抖音' : 'Douyin', ratio: '9:16', w: 1080, h: 1920, bitrate: '4M', rw: 9, rh: 16,
+      color: '#FE2C55',
+      // TikTok / Douyin logo (SimpleIcons)
+      svgPath: 'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z',
+    },
+    {
+      id: 'bilibili', name: 'Bilibili', ratio: '16:9', w: 1920, h: 1080, bitrate: '6M', rw: 16, rh: 9,
+      color: '#00A1D6',
+      // Bilibili logo (SimpleIcons)
+      svgPath: 'M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.653 4.44c.071.071.134.142.187.213h4.267a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.151.929.4.267.249.391.551.391.907 0 .355-.124.657-.373.906zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.786 1.894v7.52c.017.764.28 1.395.786 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.786-1.893v-7.52c-.017-.765-.28-1.396-.786-1.894-.507-.497-1.134-.755-1.88-.773zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c0-.373.129-.689.386-.947.258-.257.574-.386.947-.386zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c.017-.391.15-.711.4-.96.249-.249.56-.373.933-.373z',
+    },
+    {
+      id: 'youtube', name: 'YouTube HQ', ratio: '16:9', w: 1920, h: 1080, bitrate: '8M', rw: 16, rh: 9,
+      color: '#FF0000',
+      // YouTube logo (SimpleIcons)
+      svgPath: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',
+    },
+    {
+      id: 'xiaohongshu', name: zh ? '小红书' : 'Xiaohongshu', ratio: '3:4', w: 1080, h: 1440, bitrate: '4M', rw: 3, rh: 4,
+      color: '#FF2442',
+      // Xiaohongshu — heart in rounded square
+      svgPath: 'M20.5 3h-17A1.5 1.5 0 0 0 2 4.5v15A1.5 1.5 0 0 0 3.5 21h17a1.5 1.5 0 0 0 1.5-1.5v-15A1.5 1.5 0 0 0 20.5 3zm-8.5 13.9-5.99-5.6A3.15 3.15 0 0 1 5.5 8.5a3.5 3.5 0 0 1 6.5-1.8 3.5 3.5 0 0 1 6.5 1.8 3.15 3.15 0 0 1-.51 2.8L12 16.9z',
+    },
+    {
+      id: 'instagram', name: 'Instagram', ratio: '9:16', w: 1080, h: 1920, bitrate: '3.5M', rw: 9, rh: 16,
+      color: '#E4405F',
+      // Instagram logo (SimpleIcons)
+      svgPath: 'M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12c0 3.259.014 3.668.072 4.948.058 1.277.26 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24c3.259 0 3.668-.014 4.948-.072 1.277-.058 2.148-.261 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.689.072-4.948 0-3.259-.014-3.667-.072-4.947-.059-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.76-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z',
+    },
+    {
+      id: 'original', name: zh ? '原始输出' : 'Original', ratio: '—', w: 0, h: 0, bitrate: '—', rw: 16, rh: 9,
+      color: '#8d5cff',
+      // Film frame icon
+      svgPath: 'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z',
+    },
+  ]
+})
 
 // ─── live stats (count-up) ────────────────────────────────────────────────────
 const stats = ref({ clips: 0, projects: 0, models: 0 })
@@ -277,12 +424,12 @@ function animateStats() {
 
 // ─── misc static ─────────────────────────────────────────────────────────────
 const galleryItems = [
-  { title: 'K-Pop Visual Edit',    artist: 'Cyberpunk style',     bg: 'linear-gradient(135deg,#ff6b9d,#c051e0)' },
-  { title: 'Chinese Classical',    artist: 'Traditional ink',     bg: 'linear-gradient(135deg,#2d5016,#8b6914)' },
-  { title: 'Indie Film Aesthetic', artist: 'Golden hour',         bg: 'linear-gradient(135deg,#3a3a3a,#8b7355)' },
-  { title: 'Electronic Dance',     artist: 'Neon club scene',     bg: 'linear-gradient(135deg,#00e5ff,#aa00ff)' },
-  { title: 'Urban R&B',            artist: 'Street photography',  bg: 'linear-gradient(135deg,#667eea,#764ba2)' },
-  { title: 'Fantasy Epic',         artist: 'Cinematic orchestral',bg: 'linear-gradient(135deg,#a18cd1,#fbc2eb)' },
+  { title: 'K-Pop Visual Edit',    artist: 'Cyberpunk style',      bg: 'linear-gradient(135deg,#ff6b9d,#c051e0)', icon: '🎤', tag: 'K-Pop' },
+  { title: 'Chinese Classical',    artist: 'Traditional ink',      bg: 'linear-gradient(135deg,#2d5016,#8b6914)', icon: '🎼', tag: '国风' },
+  { title: 'Indie Film Aesthetic', artist: 'Golden hour',          bg: 'linear-gradient(135deg,#3a3a3a,#8b7355)', icon: '🎬', tag: 'Indie' },
+  { title: 'Electronic Dance',     artist: 'Neon club scene',      bg: 'linear-gradient(135deg,#00e5ff,#aa00ff)', icon: '⚡', tag: 'EDM' },
+  { title: 'Urban R&B',            artist: 'Street photography',   bg: 'linear-gradient(135deg,#667eea,#764ba2)', icon: '🎵', tag: 'R&B' },
+  { title: 'Fantasy Epic',         artist: 'Cinematic orchestral', bg: 'linear-gradient(135deg,#a18cd1,#fbc2eb)', icon: '✨', tag: 'Epic' },
 ]
 
 const avatarColors = ['#8d5cff', '#f3b2ff', '#5cf3ff', '#ff9bd1', '#ffcf5c']
@@ -375,7 +522,8 @@ onUnmounted(() => {
       <section class="hero">
         <div class="hero-shell">
           <div class="hero-media-layer" aria-hidden="true">
-            <video src="/hero.mp4" autoplay muted loop playsinline></video>
+            <img src="/screenshots/home_hero.png" class="hero-bg-img" alt="" />
+            <video src="/hero.mp4" autoplay muted loop playsinline poster="/screenshots/home_hero.png"></video>
           </div>
           <div class="hero-overlay">
             <div class="hero-content">
@@ -437,9 +585,11 @@ onUnmounted(() => {
           </div>
           <div class="feature-grid">
             <article class="feature-card">
+              <img src="/screenshots/pipeline.png" class="feature-screenshot" alt="Storyboard pipeline" loading="lazy" />
               <h3>{{ t.ai_gen_title }}</h3><p>{{ t.ai_gen_desc }}</p>
             </article>
             <article class="feature-card">
+              <img src="/screenshots/models.png" class="feature-screenshot" alt="Model selection" loading="lazy" />
               <h3>{{ t.multi_model_title }}</h3><p>{{ t.multi_model_desc }}</p>
               <p class="feature-note">{{ t.multi_model_note }}</p>
             </article>
@@ -476,6 +626,30 @@ onUnmounted(() => {
             </template>
           </div>
           <p class="pipeline-note">{{ t.pipeline_note }}</p>
+        </div>
+      </section>
+
+      <!-- APP PREVIEW -->
+      <section class="section-dark app-preview-section">
+        <div class="container">
+          <div class="section-header">
+            <h2>{{ lang === 'zh' ? '创作室一览' : 'Studio at a glance' }}</h2>
+            <p>{{ lang === 'zh' ? '从 AI 对话规划到多轨分镜预览，一体化创作体验' : 'From AI chat planning to multi-track storyboard preview — one unified studio' }}</p>
+          </div>
+          <div class="app-preview-grid">
+            <a class="app-preview-card" href="#" @click.prevent="startCreating">
+              <img src="/screenshots/create.png" alt="Create studio" loading="lazy" />
+              <div class="app-preview-label">{{ lang === 'zh' ? '🎬 AI 创作室' : '🎬 AI Studio' }}</div>
+            </a>
+            <a class="app-preview-card" href="#" @click.prevent="startCreating">
+              <img src="/screenshots/projects.png" alt="My projects" loading="lazy" />
+              <div class="app-preview-label">{{ lang === 'zh' ? '📂 我的项目' : '📂 My Projects' }}</div>
+            </a>
+            <a class="app-preview-card" href="#" @click.prevent="startCreating">
+              <img src="/screenshots/export.png" alt="Export editor" loading="lazy" />
+              <div class="app-preview-label">{{ lang === 'zh' ? '📤 导出编辑器' : '📤 Export Editor' }}</div>
+            </a>
+          </div>
         </div>
       </section>
 
@@ -533,7 +707,8 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="model-grid">
-            <article v-for="m in modelData[modelTab]" :key="m.name" class="model-card">
+            <article v-for="m in modelData[modelTab]" :key="m.name" class="model-card"
+                     :style="{ '--mc': m.color }">
               <div class="model-card-top">
                 <span class="model-name">{{ m.name }}</span>
                 <span class="model-badge" :class="m.license">
@@ -541,6 +716,12 @@ onUnmounted(() => {
                 </span>
               </div>
               <span class="model-tag">{{ m.tag }}</span>
+              <div class="model-specs">
+                <span v-for="s in m.specs" :key="s" class="model-spec-chip">{{ s }}</span>
+              </div>
+              <p class="model-bestfor">
+                <strong>{{ lang === 'zh' ? '适用：' : 'Best for: ' }}</strong>{{ m.bestFor }}
+              </p>
               <p class="model-desc">{{ m.desc }}</p>
             </article>
           </div>
@@ -555,17 +736,17 @@ onUnmounted(() => {
             <p>{{ t.export_subtitle }}</p>
           </div>
           <div class="export-grid">
-            <div v-for="p in exportPresets" :key="p.id" class="export-card">
-              <div class="export-ratio-wrap">
-                <div class="export-ratio-preview"
-                     :style="{ aspectRatio: `${p.rw} / ${p.rh}`, maxWidth: p.rw > p.rh ? '80px' : '40px' }">
-                </div>
+            <div v-for="p in exportPresets" :key="p.id" class="export-card" :style="{ '--ep': p.color }">
+              <div class="export-logo-wrap">
+                <svg class="export-logo-svg" viewBox="0 0 24 24" fill="currentColor" :style="{ color: p.color }">
+                  <path :d="p.svgPath" />
+                </svg>
               </div>
               <div class="export-info">
                 <div class="export-name">{{ p.name }}</div>
                 <div class="export-ratio">{{ p.ratio }}</div>
                 <div class="export-specs" v-if="p.w">{{ p.w }}×{{ p.h }} · {{ p.bitrate }}</div>
-                <div class="export-specs" v-else>—</div>
+                <div class="export-specs" v-else>{{ lang === 'zh' ? '无损输出' : 'Lossless' }}</div>
               </div>
             </div>
           </div>
@@ -580,8 +761,11 @@ onUnmounted(() => {
             <p>{{ t.testimonials_subtitle }}</p>
           </div>
           <div class="testimonial-grid">
-            <article class="testimonial-card" v-for="item in testimonials" :key="item.name">
+            <article class="testimonial-card" v-for="(item, idx) in testimonials" :key="item.name">
               <div class="testimonial-header">
+                <div class="t-avatar" :style="{ background: avatarColors[idx % avatarColors.length] }">
+                  {{ item.name[0] }}
+                </div>
                 <div><h4>{{ item.name }}</h4><span>{{ item.role }}</span></div>
               </div>
               <p>{{ item.quote }}</p>
@@ -599,8 +783,14 @@ onUnmounted(() => {
           </div>
           <div class="gallery-grid">
             <div class="gallery-tile" v-for="item in galleryItems" :key="item.title">
-              <div class="gallery-tile-img" :style="{ background: item.bg }"></div>
-              <div><span>{{ item.title }}</span><small>{{ item.artist }}</small></div>
+              <div class="gallery-tile-img" :style="{ background: item.bg }">
+                <span class="gallery-tile-icon">{{ item.icon }}</span>
+                <span class="gallery-tile-tag">{{ item.tag }}</span>
+              </div>
+              <div class="gallery-tile-meta">
+                <span>{{ item.title }}</span>
+                <small>{{ item.artist }}</small>
+              </div>
             </div>
           </div>
         </div>
@@ -844,26 +1034,36 @@ section { padding:72px 0; }
 .model-tab:not(.active):hover { border-color:var(--accent);color:var(--text); }
 
 .model-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px; }
-.model-card { padding:20px;border-radius:16px;border:1px solid var(--border);background:var(--card);
-  display:flex;flex-direction:column;gap:8px;transition:border-color .2s; }
-.model-card:hover { border-color:rgba(141,92,255,.4); }
+.model-card { --mc: #8d5cff;padding:20px;border-radius:16px;border:1px solid var(--border);
+  background:var(--card);display:flex;flex-direction:column;gap:8px;
+  transition:border-color .25s,box-shadow .25s;position:relative;overflow:hidden; }
+.model-card::before { content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--mc);opacity:.7;border-radius:16px 16px 0 0; }
+.model-card:hover { border-color:var(--mc);box-shadow:0 0 24px -6px var(--mc); }
 .model-card-top { display:flex;align-items:center;justify-content:space-between;gap:8px; }
 .model-name { font-size:1rem;font-weight:700; }
 .model-badge { font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:999px; }
 .model-badge.open       { background:rgba(74,222,128,.15);color:#4ade80;border:1px solid rgba(74,222,128,.3); }
 .model-badge.commercial { background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25); }
-.model-tag { font-size:.76rem;color:var(--accent-strong);font-weight:600; }
-.model-desc { font-size:.83rem;color:var(--text-muted);line-height:1.55; }
+.model-tag { font-size:.76rem;color:var(--mc);font-weight:700; }
+.model-specs { display:flex;flex-wrap:wrap;gap:5px;margin:2px 0; }
+.model-spec-chip { font-size:.68rem;padding:2px 8px;border-radius:999px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--text-muted); }
+.model-bestfor { font-size:.8rem;color:var(--text-muted);line-height:1.5;margin:0; }
+.model-bestfor strong { color:var(--mc);font-weight:600; }
+.model-desc { font-size:.83rem;color:var(--text-muted);line-height:1.55;margin:0; }
 
 /* ── ④ Export Presets ──────────────────────────────────────────────────────── */
 .export-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:16px; }
 .export-card { padding:20px 16px;border-radius:16px;border:1px solid var(--border);background:var(--card);
   display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;
   transition:border-color .2s,transform .2s; }
-.export-card:hover { border-color:rgba(141,92,255,.4);transform:translateY(-3px); }
-.export-ratio-wrap { display:flex;align-items:center;justify-content:center;height:56px; }
-.export-ratio-preview { background:linear-gradient(135deg,rgba(141,92,255,.3),rgba(243,178,255,.2));
-  border:1px solid rgba(141,92,255,.4);border-radius:5px;width:100%; }
+.export-card:hover { border-color:color-mix(in srgb,var(--ep,#8d5cff) 50%,transparent);transform:translateY(-3px);
+  box-shadow:0 6px 24px color-mix(in srgb,var(--ep,#8d5cff) 20%,transparent); }
+.export-logo-wrap { display:flex;align-items:center;justify-content:center;height:56px;width:56px;
+  border-radius:14px;background:color-mix(in srgb,var(--ep,#8d5cff) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--ep,#8d5cff) 25%,transparent); }
+.export-logo-svg { width:28px;height:28px; }
 .export-name { font-size:.95rem;font-weight:700; }
 .export-ratio { font-size:.78rem;color:var(--accent-strong);font-weight:600; }
 .export-specs { font-size:.73rem;color:var(--text-muted); }
@@ -908,6 +1108,41 @@ section { padding:72px 0; }
 .footer-grid li { font-size:.88rem; }
 .footer-grid a { color:var(--text-muted);transition:color .2s; }
 .footer-grid a:hover { color:var(--accent); }
+
+/* ── App Preview ───────────────────────────────────────────────────────────── */
+.app-preview-section { padding:72px 0; }
+.app-preview-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px; }
+.app-preview-card { display:block;border-radius:16px;overflow:hidden;border:1px solid var(--border);
+  background:#0c0c18;transition:transform .25s,box-shadow .25s;cursor:pointer;color:inherit; }
+.app-preview-card:hover { transform:translateY(-4px);box-shadow:0 12px 40px rgba(141,92,255,.25); }
+.app-preview-card img { width:100%;display:block;aspect-ratio:16/9;object-fit:cover; }
+.app-preview-label { padding:10px 14px;font-size:.88rem;font-weight:600;color:var(--text); }
+
+/* ── Hero bg image fallback ────────────────────────────────────────────────── */
+.hero-bg-img { position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;object-position:center top;z-index:0; }
+.hero-media-layer video { z-index:1; }
+
+/* ── Feature card screenshot ───────────────────────────────────────────────── */
+.feature-screenshot { width:100%;border-radius:10px;margin-bottom:16px;
+  border:1px solid rgba(255,255,255,.07);display:block;
+  box-shadow:0 4px 24px rgba(0,0,0,.4); }
+
+/* ── Gallery tile icon & tag ───────────────────────────────────────────────── */
+.gallery-tile-img { display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;position:relative; }
+.gallery-tile-icon { font-size:2.8rem;line-height:1;
+  filter:drop-shadow(0 2px 10px rgba(0,0,0,.6)); }
+.gallery-tile-tag { font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  background:rgba(0,0,0,.45);color:rgba(255,255,255,.9);
+  padding:3px 10px;border-radius:999px;backdrop-filter:blur(4px); }
+.gallery-tile-meta { padding:12px 14px 16px; }
+.gallery-tile-meta span { display:block;font-size:.9rem;font-weight:500;margin-bottom:4px; }
+.gallery-tile-meta small { color:var(--text-muted);font-size:.8rem; }
+
+/* ── Testimonial avatar initials ───────────────────────────────────────────── */
+.t-avatar { width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:1.05rem;font-weight:800;
+  color:rgba(0,0,0,.75);flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.3); }
 
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media(max-width:600px) {

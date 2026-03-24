@@ -83,8 +83,22 @@ async def delete_project(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Collect all media URLs before deleting DB records
+    media_result = await db.execute(
+        select(Media).where(Media.project_id == project_id)
+    )
+    urls = [m.file_url for m in media_result.scalars().all() if m.file_url]
+
     await db.delete(project)
     await db.commit()
+
+    # Best-effort MinIO cleanup (after DB commit so partial failure doesn't corrupt state)
+    if urls:
+        import asyncio
+        from app.utils.storage import delete_objects
+        await asyncio.to_thread(delete_objects, urls)
+
     return {"ok": True}
 
 

@@ -56,7 +56,7 @@ class Task(Base):
 class Media(Base):
     __tablename__ = "media"
 
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"))
     type: Mapped[str] = mapped_column(String(20))
     # image / video / audio / final_video

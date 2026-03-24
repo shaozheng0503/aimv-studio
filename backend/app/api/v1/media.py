@@ -33,6 +33,8 @@ async def upload_audio(
 
     if not file.filename or not file.filename.lower().endswith((".mp3", ".wav", ".flac", ".m4a")):
         raise HTTPException(status_code=400, detail="Unsupported audio format. Use MP3/WAV/FLAC/M4A.")
+    if file.size and file.size > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio file too large. Maximum 100 MB.")
 
     # Save to temp file — use async UploadFile.read() to avoid blocking the event loop
     suffix = Path(file.filename).suffix
@@ -108,6 +110,8 @@ async def upload_image(
 
     if not file.filename or not file.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
         raise HTTPException(status_code=400, detail="Unsupported image format.")
+    if file.size and file.size > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image file too large. Maximum 20 MB.")
 
     suffix = Path(file.filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

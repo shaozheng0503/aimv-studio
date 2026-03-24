@@ -11,6 +11,7 @@ const langStore = useLangStore()
 const { t, lang } = storeToRefs(langStore)
 const projects = ref<any[]>([])
 const loading = ref(true)
+const creating = ref(false)
 const editingId = ref<number | null>(null)
 const editingTitle = ref('')
 
@@ -35,8 +36,14 @@ onMounted(async () => {
 })
 
 async function createProject() {
-  const res = await api.post('/projects', { title: t.value('projectUntitled') })
-  router.push(`/create/${res.data.id}`)
+  if (creating.value) return
+  creating.value = true
+  try {
+    const res = await api.post('/projects', { title: t.value('projectUntitled') })
+    router.push(`/create/${res.data.id}`)
+  } finally {
+    creating.value = false
+  }
 }
 
 function startEdit(p: any, event: Event) {
@@ -98,14 +105,14 @@ async function togglePublish(p: any, event: Event) {
         <router-link to="/" class="logo-text">AIMV</router-link>
       </div>
       <h1>{{ t('myProjects') }}</h1>
-      <button class="btn-primary" @click="createProject">{{ t('newProject') }}</button>
+      <button class="btn-primary" :disabled="creating" @click="createProject">{{ t('newProject') }}</button>
     </header>
 
     <div v-if="loading" class="loading">{{ t('loading') }}</div>
 
     <div v-else-if="projects.length === 0" class="empty">
       <p>{{ t('noProjects') }}</p>
-      <button class="btn-primary" style="margin-top:16px" @click="createProject">{{ t('newProject') }}</button>
+      <button class="btn-primary" style="margin-top:16px" :disabled="creating" @click="createProject">{{ t('newProject') }}</button>
     </div>
 
     <div v-else class="project-grid">

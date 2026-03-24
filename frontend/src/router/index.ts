@@ -38,10 +38,23 @@ const router = createRouter({
   ],
 })
 
+const pageTitles: Record<string, string> = {
+  home: 'AIMV Studio',
+  create: 'Create — AIMV Studio',
+  projects: 'My Projects — AIMV Studio',
+  editor: 'Editor — AIMV Studio',
+  gallery: 'Gallery — AIMV Studio',
+  login: 'Sign In — AIMV Studio',
+}
+
 router.beforeEach((to) => {
   if (to.meta.requiresAuth && !localStorage.getItem('token')) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
+})
+
+router.afterEach((to) => {
+  document.title = pageTitles[to.name as string] ?? 'AIMV Studio'
 })
 
 export default router

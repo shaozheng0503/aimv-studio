@@ -173,9 +173,22 @@ ShotRouter 根据分镜类型（演唱镜头 sing / 叙事镜头 story）和视�
 - **A/B 版本对比** — 同一段落并发调用多个模型，用户择优选择
 - **质量自动把关** — VerifierAgent 评分低于 3 分触发重试，最多 3 次
 - **字幕自动烧录** — 基于 whisper 转录结果生成 SRT，导出时一键烧录
-- **多平台导出** — 抖音 9:16 / B站 16:9 / YouTube HQ / 小红书 3:4，自动重编码
+- **多平台导出** — 抖音 9:16 / B站 16:9 / YouTube HQ / 小红书 3:4 / Instagram Reels，品牌 Logo + 自动重编码
 - **WebSocket 实时进度** — 前端全程追踪生成状态
 - **画廊与点赞** — 公开发布的 MV 支持展示与互动
+- **访客模式** — 未登录用户可浏览公开画廊，无需注册
+
+---
+
+### 🔒 安全与性能 / Security & Performance
+
+- **登录限速** — Redis INCR/EXPIRE，10 次/IP/分钟，超限返回 429
+- **文件大小校验** — 音频上传 ≤ 100 MB，图片上传 ≤ 20 MB，超限返回 413
+- **参数白名单** — 导出平台 / 对比类型均做枚举校验，拒绝未知值
+- **输入验证** — Pydantic field_validator：用户名 2–50 字符，密码 ≥ 6 字符
+- **BOLA 防护** — 所有资源操作强制校验 `user_id`，防止跨用户越权
+- **MinIO 级联清理** — 删除项目时自动清理对象存储中的媒体文件
+- **DB 查询优化** — `Media.project_id` 添加索引（Alembic migration 003）
 
 ---
 
@@ -183,9 +196,9 @@ ShotRouter 根据分镜类型（演唱镜头 sing / 叙事镜头 story）和视�
 
 | 模态 Modality | 开源 Open-source | 闭源 Closed-source |
 |---|---|---|
-| 图像 Image | Z-image（本地） | — |
-| 视频 Video | Wan2.2 14B（Apache 2.0） | Seedance 2.0 · Veo 3.1 · Grok Video 1.0 |
-| 音乐 Music | ACEStep 1.5（LoRA 支持） | Suno · Google Lyria |
+| 图像 Image | Z-image（本地） · FLUX.1-dev · SD 3.5 Large | DALL-E 3 · Midjourney v6 |
+| 视频 Video | Wan2.2 14B（Apache 2.0） · CogVideoX-5B | Seedance 2.0 · Kling 2.0 · Veo 3.1 · Grok Video 1.0 |
+| 音乐 Music | ACEStep 1.5（LoRA 支持）· MusicGen · YuE | Suno · Google Lyria · Udio |
 | LLM | — | GPT-4o · Gemini 2.5 Flash |
 
 ---
@@ -309,7 +322,12 @@ MINIO_SECRET_KEY=minioadmin
 | `POST` | `/api/v1/projects/{id}/pipeline/start` | 一键跑完整流水线 / Full pipeline |
 | `POST` | `/api/v1/projects/{id}/compare` | A/B 模型对比 / Compare models |
 | `POST` | `/api/v1/projects/{id}/export` | 导出指定平台格式 / Export |
-| `GET` | `/api/v1/gallery` | 公开画廊 / Public gallery |
+| `GET` | `/api/v1/gallery` | 公开画廊（无需登录）/ Public gallery (no auth) |
+| `POST` | `/api/v1/projects/{id}/publish` | 发布至画廊 / Publish |
+| `POST` | `/api/v1/projects/{id}/unpublish` | 取消发布 / Unpublish |
+| `POST` | `/api/v1/projects/{id}/upload/audio` | 上传音频并自动分析 / Upload & analyze audio |
+| `POST` | `/api/v1/projects/{id}/upload/image` | 上传参考图 / Upload reference image |
+| `GET` | `/api/v1/export/presets` | 查询导出平台列表 / List export presets |
 | `WS` | `/ws/projects/{id}/progress` | 实时生成进度 / Live progress |
 
 ---

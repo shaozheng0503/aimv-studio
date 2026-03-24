@@ -58,6 +58,9 @@ async def export_video(
     if not final_media:
         raise HTTPException(status_code=400, detail="No final video found. Run pipeline first.")
 
+    if req.platform not in PLATFORM_PRESETS:
+        raise HTTPException(status_code=400, detail=f"Unknown platform. Choose from: {', '.join(PLATFORM_PRESETS)}")
+
     if req.platform == "original":
         return {"download_url": final_media.file_url, "platform": "original"}
 

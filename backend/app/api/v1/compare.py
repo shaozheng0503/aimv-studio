@@ -14,6 +14,9 @@ from app.schemas.project import TaskResponse
 router = APIRouter(tags=["compare"])
 
 
+_VALID_COMPARE_TYPES = {"video", "music", "image"}
+
+
 class CompareRequest(BaseModel):
     prompt: str
     type: str = "video"  # video or music or image
@@ -41,6 +44,8 @@ async def create_comparison(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    if req.type not in _VALID_COMPARE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid type. Choose from: {', '.join(_VALID_COMPARE_TYPES)}")
     if len(req.models) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 models to compare")
 
