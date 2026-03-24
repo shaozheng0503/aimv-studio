@@ -40,7 +40,7 @@ async function createProject() {
   creating.value = true
   try {
     const res = await api.post('/projects', { title: t.value('projectUntitled') })
-    router.push(`/create/${res.data.id}`)
+    router.push(`/canvas/${res.data.id}`)
   } finally {
     creating.value = false
   }
@@ -120,7 +120,7 @@ async function togglePublish(p: any, event: Event) {
         v-for="p in projects"
         :key="p.id"
         class="card project-card"
-        @click="router.push(`/create/${p.id}`)"
+        @click="router.push(`/canvas/${p.id}`)"
       >
         <div class="project-thumb">
           <span class="thumb-status" :class="`status-${p.status}`">
@@ -149,7 +149,7 @@ async function togglePublish(p: any, event: Event) {
             <span class="meta-date">{{ new Date(p.created_at).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US') }}</span>
           </div>
           <div class="project-actions">
-            <button class="btn-ghost btn-xs" @click.stop="router.push(`/create/${p.id}`)">{{ t('enterCreate') }}</button>
+            <button class="btn-ghost btn-xs" @click.stop="router.push(`/canvas/${p.id}`)">{{ t('enterCreate') }}</button>
             <button class="btn-ghost btn-xs btn-canvas" @click.stop="router.push(`/canvas/${p.id}`)">Canvas</button>
             <button v-if="p.status === 'done'" class="btn-ghost btn-xs" @click.stop="router.push(`/editor/${p.id}`)">{{ t('export') }}</button>
             <button

@@ -138,7 +138,7 @@ async function doExport() {
         <span v-if="exporting" class="export-status">
           <span class="export-spinner"></span>{{ t('exporting') }}
         </span>
-        <router-link :to="`/create/${projectId}`" class="btn-ghost">{{ t('backToStudio') }}</router-link>
+        <router-link :to="`/canvas/${projectId}`" class="btn-ghost">{{ t('backToStudio') }}</router-link>
         <button class="btn-primary" @click="showExportDialog = true" :disabled="exporting">{{ t('export') }}</button>
       </div>
     </header>

@@ -732,10 +732,7 @@ onUnmounted(() => {
       <button class="back-btn" @click="router.back()">&#x2190; &#x8FD4;&#x56DE;</button>
       <span class="project-name">{{ projectTitle || 'AIMV Canvas' }}</span>
       <div class="topbar-center">
-        <div class="mode-switch">
-          <button class="mode-btn" @click="router.push(`/create/${projectId}`)">&#x7EBF;&#x6027;&#x5411;&#x5BFC;</button>
-          <button class="mode-btn active">&#x81EA;&#x7531;&#x753B;&#x5E03;</button>
-        </div>
+        <span class="canvas-badge">&#x2728; 自由画布</span>
       </div>
       <div class="topbar-right">
         <!-- Edge legend -->
@@ -1188,7 +1185,12 @@ onUnmounted(() => {
 .back-btn:hover { color: white; border-color: rgba(255,255,255,.4); }
 .project-name { font-size: .85rem; color: rgba(255,255,255,.5); white-space: nowrap; }
 .topbar-center { flex: 1; display: flex; justify-content: center; }
-.mode-switch { display: flex; gap: 2px; background: rgba(255,255,255,.06); border-radius: 10px; padding: 3px; }
+.canvas-badge {
+  font-size: .78rem; font-weight: 600; letter-spacing: .04em;
+  padding: 4px 12px; border-radius: 20px;
+  background: rgba(141,92,255,.15); border: 1px solid rgba(141,92,255,.35);
+  color: #c4b5fd;
+}
 .mode-btn {
   padding: 5px 16px; border-radius: 8px; border: none;
   font-size: .82rem; cursor: pointer; background: transparent; color: rgba(255,255,255,.5);

@@ -78,7 +78,7 @@ function changeStyle(s: string) {
         <h1>{{ t('galleryTitle') }}</h1>
         <nav class="header-nav">
           <router-link to="/projects">{{ t('navProjects') }}</router-link>
-          <router-link to="/create">{{ t('navCreate') }}</router-link>
+          <router-link to="/projects">{{ t('navCreate') }}</router-link>
         </nav>
       </div>
     </header>

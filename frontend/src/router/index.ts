@@ -10,8 +10,10 @@ const router = createRouter({
     },
     {
       path: '/create/:id?',
-      name: 'create',
-      component: () => import('@/views/Create/index.vue'),
+      redirect: (to) => {
+        const id = to.params.id
+        return id ? `/canvas/${id}` : '/projects'
+      },
     },
     {
       path: '/projects',
