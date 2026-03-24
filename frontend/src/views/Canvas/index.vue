@@ -182,6 +182,7 @@ const loading      = ref(false)
 const saving       = ref(false)
 const canSave      = ref(false)
 const projectTitle = ref('')
+const showGuide    = ref(false)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const pollingIntervals: Record<string, ReturnType<typeof setInterval>> = {}
 
@@ -238,12 +239,12 @@ async function loadCanvas() {
     projectTitle.value = projectRes.data.title ?? ''
     document.title = `${projectTitle.value} — Canvas`
     const savedNodes: any[] = data.nodes ?? []
+    const zoneNodes = initialNodes.filter((n: any) => n.type === 'zone')
+
     if (savedNodes.length > 0) {
-      // Rebuild: keep zone nodes from default, apply saved non-zone nodes
-      const zoneNodes = initialNodes.filter((n: any) => n.type === 'zone')
+      // Existing project — restore saved canvas
       const contentNodes = savedNodes.filter((n: any) => n.type !== 'zone')
 
-      // Patch shot statuses from API shots
       const shotMap: Record<string, { status: string; video_url: string | null }> = {}
       for (const s of (data.shots ?? [])) shotMap[s.node_id] = s
 
@@ -265,14 +266,17 @@ async function loadCanvas() {
         }),
       ]
       edges.value = data.edges ?? []
-
       if (data.viewport?.zoom) savedViewport = data.viewport
 
-      // Resume polling for any shots still generating
       nodes.value.filter((n: any) => n.type === 'shot' && n.data.status === 'generating')
         .forEach((n: any) => startPolling(n.id))
+    } else {
+      // New project — start with empty canvas + show guide
+      nodes.value = zoneNodes
+      edges.value = []
+      showGuide.value = true
     }
-  } catch { /* network error — keep default mock canvas */ }
+  } catch { /* network error — keep zone-only canvas */ }
   finally {
     loading.value = false
     canSave.value = true
@@ -751,6 +755,7 @@ onUnmounted(() => {
         <button class="btn-import" @click="importFromStoryboard()" title="从分镜脚本导入镜头节点">&#x21E9; 导入分镜</button>
         <button class="btn-gen-all" @click="generateAll()">&#x26A1; &#x751F;&#x6210;&#x7A7A;&#x767D;&#x955C;&#x5934;</button>
         <button class="btn-export" @click="router.push(`/editor/${projectId}`)">&#x5BFC;&#x51FA;&#x65F6;&#x95F4;&#x7EBF; &#x2192;</button>
+        <button class="topbar-help" @click="showGuide = true" title="使用指南">?</button>
       </div>
     </header>
 
@@ -1159,6 +1164,70 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- ── 引导 Overlay ─────────────────────────────────────────────────── -->
+    <Transition name="guide-fade">
+      <div v-if="showGuide" class="guide-overlay" @click.self="showGuide = false">
+        <div class="guide-card">
+          <div class="guide-header">
+            <div class="guide-logo">✦ AIMV 自由画布</div>
+            <p class="guide-sub">像剪辑师一样可视化创作你的 MV — 按以下步骤上手</p>
+          </div>
+
+          <div class="guide-steps">
+            <div class="guide-step">
+              <div class="gs-num">1</div>
+              <div class="gs-icon">🎵</div>
+              <div class="gs-body">
+                <div class="gs-title">添加音乐节点</div>
+                <div class="gs-desc">点击底部工具栏「+ 音乐」，填入曲名、BPM 和情绪标签，作为所有镜头的参考背景。</div>
+                <button class="gs-btn music" @click="showGuide = false; addNode('song')">+ 添加音乐</button>
+              </div>
+            </div>
+
+            <div class="guide-step">
+              <div class="gs-num">2</div>
+              <div class="gs-icon">👤</div>
+              <div class="gs-body">
+                <div class="gs-title">定义角色 &amp; 场景</div>
+                <div class="gs-desc">添加「角色」节点绑定 LoRA 模型，添加「场景」节点定义拍摄环境，连线到镜头后自动注入生成上下文。</div>
+                <div class="gs-btn-row">
+                  <button class="gs-btn char" @click="showGuide = false; addNode('char')">+ 角色</button>
+                  <button class="gs-btn scene" @click="showGuide = false; addNode('scene')">+ 场景</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="guide-step">
+              <div class="gs-num">3</div>
+              <div class="gs-icon">🎬</div>
+              <div class="gs-body">
+                <div class="gs-title">规划镜头序列</div>
+                <div class="gs-desc">添加多个「镜头」节点，写入画面提示词，用连线串联顺序（前驱帧自动传递），或从已有分镜脚本一键导入。</div>
+                <div class="gs-btn-row">
+                  <button class="gs-btn shot" @click="showGuide = false; addNode('shot')">+ 镜头</button>
+                  <button class="gs-btn import" @click="showGuide = false; importFromStoryboard()">⇩ 导入分镜</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="guide-step">
+              <div class="gs-num">4</div>
+              <div class="gs-icon">⚡</div>
+              <div class="gs-body">
+                <div class="gs-title">生成 &amp; 导出</div>
+                <div class="gs-desc">选中镜头点击「生成」单独生成，或点击顶栏「⚡ 生成空白镜头」批量生成，完成后「导出时间线」合成完整 MV。</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="guide-footer">
+            <div class="guide-tip">💡 点击节点查看详情，拖拽连线传递上下文，时间轴锁点对齐音乐节拍</div>
+            <button class="guide-start" @click="showGuide = false">我知道了，开始创作 →</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
   </div>
 </template>
 
@@ -1506,6 +1575,83 @@ label {
   box-shadow: 0 0 8px rgba(255,255,255,.4);
   pointer-events: none; z-index: 10;
 }
+
+/* ── topbar help button ───────────────────────────────────────────────── */
+.topbar-help {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.2); background: transparent;
+  color: rgba(255,255,255,.5); font-size: .85rem; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.topbar-help:hover { border-color: #8d5cff; color: #c4b5fd; }
+
+/* ── guide overlay ───────────────────────────────────────────────────── */
+.guide-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.75); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+.guide-card {
+  width: 680px; max-width: 96vw; max-height: 90vh; overflow-y: auto;
+  background: #10101a; border: 1px solid rgba(141,92,255,.3);
+  border-radius: 20px; padding: 36px 40px;
+  box-shadow: 0 0 60px rgba(141,92,255,.2);
+}
+.guide-header { text-align: center; margin-bottom: 32px; }
+.guide-logo {
+  font-size: 1.4rem; font-weight: 800; letter-spacing: .02em;
+  background: linear-gradient(135deg,#a78bfa,#f3b2ff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 8px;
+}
+.guide-sub { font-size: .9rem; color: rgba(255,255,255,.45); }
+
+.guide-steps { display: flex; flex-direction: column; gap: 20px; }
+.guide-step {
+  display: flex; gap: 16px; align-items: flex-start;
+  padding: 18px 20px; border-radius: 14px;
+  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
+  transition: border-color .2s;
+}
+.guide-step:hover { border-color: rgba(141,92,255,.3); }
+.gs-num {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(141,92,255,.25); border: 1px solid #8d5cff;
+  color: #c4b5fd; font-size: .75rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; margin-top: 2px;
+}
+.gs-icon { font-size: 1.6rem; flex-shrink: 0; }
+.gs-body { flex: 1; }
+.gs-title { font-size: .95rem; font-weight: 700; margin-bottom: 5px; color: #e2e8f0; }
+.gs-desc { font-size: .8rem; color: rgba(255,255,255,.45); line-height: 1.55; margin-bottom: 10px; }
+.gs-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.gs-btn {
+  padding: 5px 14px; font-size: .78rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid; font-weight: 600; transition: all .15s;
+}
+.gs-btn.music  { border-color: #8d5cff; color: #c4b5fd; background: rgba(141,92,255,.12); }
+.gs-btn.char   { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,.12); }
+.gs-btn.scene  { border-color: #06b6d4; color: #67e8f9; background: rgba(6,182,212,.12); }
+.gs-btn.shot   { border-color: #a855f7; color: #d8b4fe; background: rgba(168,85,247,.12); }
+.gs-btn.import { border-color: rgba(255,255,255,.2); color: rgba(255,255,255,.6); background: transparent; }
+.gs-btn:hover  { filter: brightness(1.25); }
+
+.guide-footer { margin-top: 28px; text-align: center; }
+.guide-tip {
+  font-size: .78rem; color: rgba(255,255,255,.3);
+  margin-bottom: 16px; line-height: 1.6;
+}
+.guide-start {
+  padding: 12px 32px; font-size: .95rem; font-weight: 700;
+  background: linear-gradient(135deg,#8d5cff,#b57bff);
+  border: none; border-radius: 12px; color: white; cursor: pointer;
+  transition: opacity .2s;
+}
+.guide-start:hover { opacity: .88; }
+
+.guide-fade-enter-active, .guide-fade-leave-active { transition: opacity .25s; }
+.guide-fade-enter-from, .guide-fade-leave-to { opacity: 0; }
 
 /* status counter */
 .status-counter {
