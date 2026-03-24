@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLangStore } from '@/stores/lang'
 import { storeToRefs } from 'pinia'
+import api from '@/api'
 
 const router = useRouter()
 
@@ -182,8 +183,18 @@ function toggleLang() {
 }
 
 // ─── routing ─────────────────────────────────────────────────────────────────
-function startCreating() {
-  router.push('/create')
+async function startCreating() {
+  if (!localStorage.getItem('token')) {
+    router.push({ name: 'login', query: { redirect: '/projects' } })
+    return
+  }
+  try {
+    const res = await api.post('/projects', { title: '未命名项目' })
+    router.push(`/canvas/${res.data.id}`)
+  } catch {
+    // Not authenticated or API error — fall back to projects list
+    router.push('/projects')
+  }
 }
 
 // ─── carousel ────────────────────────────────────────────────────────────────
