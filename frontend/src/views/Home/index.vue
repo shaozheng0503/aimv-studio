@@ -303,6 +303,13 @@ const modelData = computed(() => {
         bestFor: zh ? 'K-Pop · 时尚大片 · 广告视觉' : 'K-Pop · Fashion editorial · Ad visuals',
         desc: zh ? '公认美学质量最强的商业图像模型，风格迁移与人物写真效果尤其出色。' : 'Industry-leading aesthetic quality. Exceptional for style transfer and portrait photography.',
       },
+      {
+        name: 'Imagen 3', license: 'commercial', color: '#4285F4',
+        tag: zh ? '超写实' : 'Photorealism',
+        specs: zh ? ['Google DeepMind', '2K 输出', '超低噪点'] : ['Google DeepMind', '2K output', 'Ultra-low noise'],
+        bestFor: zh ? '写实人像 · 产品级场景 · 自然光效' : 'Portrait · Product shot · Natural lighting',
+        desc: zh ? 'Google DeepMind 最新图像模型，自然光效与皮肤纹理细节业界领先，适合高端写实镜头。' : "Google DeepMind's latest model — industry-leading natural lighting and skin-texture detail for high-end realistic shots.",
+      },
     ],
     video: [
       {
@@ -1174,7 +1181,7 @@ section { padding:72px 0; }
 .model-tab.active { background:var(--accent-gradient);color:#000;border-color:transparent;font-weight:600; }
 .model-tab:not(.active):hover { border-color:var(--accent);color:var(--text); }
 
-.model-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px; }
+.model-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px; }
 .model-card { --mc: #8d5cff;padding:20px;border-radius:16px;border:1px solid var(--border);
   background:var(--card);display:flex;flex-direction:column;gap:8px;
   transition:border-color .25s,box-shadow .25s;position:relative;overflow:hidden; }
@@ -1210,7 +1217,7 @@ section { padding:72px 0; }
 .export-specs { font-size:.73rem;color:var(--text-muted); }
 
 /* ── Testimonials ──────────────────────────────────────────────────────────── */
-.testimonial-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px; }
+.testimonial-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px; }
 .testimonial-card { padding:22px;border-radius:18px;border:1px solid var(--border);background:rgba(25,25,35,.7); }
 .testimonial-header { display:flex;align-items:center;gap:12px;margin-bottom:14px; }
 .testimonial-header h4 { font-size:1rem;margin-bottom:2px; }
@@ -1218,7 +1225,7 @@ section { padding:72px 0; }
 .testimonial-card > p { color:var(--text-muted);font-size:.9rem;line-height:1.6; }
 
 /* ── Gallery ───────────────────────────────────────────────────────────────── */
-.gallery-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px; }
+.gallery-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px; }
 .gallery-tile { border-radius:18px;border:1px solid var(--border);overflow:hidden;background:#11111a; }
 .gallery-tile-img { height:140px;width:100%; }
 .gallery-tile > div { padding:12px 14px 16px; }
