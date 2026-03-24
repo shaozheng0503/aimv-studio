@@ -150,6 +150,7 @@ async function togglePublish(p: any, event: Event) {
           </div>
           <div class="project-actions">
             <button class="btn-ghost btn-xs" @click.stop="router.push(`/create/${p.id}`)">{{ t('enterCreate') }}</button>
+            <button class="btn-ghost btn-xs btn-canvas" @click.stop="router.push(`/canvas/${p.id}`)">Canvas</button>
             <button v-if="p.status === 'done'" class="btn-ghost btn-xs" @click.stop="router.push(`/editor/${p.id}`)">{{ t('export') }}</button>
             <button
               v-if="p.status === 'done'"
@@ -204,6 +205,7 @@ async function togglePublish(p: any, event: Event) {
 .project-actions { display: flex; gap: 8px; }
 .btn-xs { padding: 4px 10px; font-size: 11px; }
 .btn-danger { color: var(--error, #f87171) !important; }
+.btn-canvas { color: #22d3ee !important; }
 .btn-publish { color: var(--accent, #a78bfa) !important; }
 .btn-published { color: #34d399 !important; }
 .empty, .loading { text-align: center; padding: 80px; color: var(--text-muted); }

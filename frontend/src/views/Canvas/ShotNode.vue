@@ -11,9 +11,15 @@ defineProps<{
     gradient: string
     timeAnchor: number | null
     segment: string | null
+    videoUrl?: string | null
   }
   selected?: boolean
 }>()
+
+function seekToFirstFrame(e: Event) {
+  const v = e.target as HTMLVideoElement
+  v.currentTime = 0.5
+}
 
 function fmt(s: number) {
   const m = Math.floor(s / 60)
@@ -27,7 +33,20 @@ function fmt(s: number) {
     <Handle type="target" :position="Position.Left" class="vf-handle" />
 
     <!-- thumbnail -->
-    <div class="thumb" :style="{ background: data.gradient }">
+    <div class="thumb" :style="data.videoUrl ? {} : { background: data.gradient }">
+      <!-- actual video preview when done -->
+      <video
+        v-if="data.videoUrl && data.status === 'done'"
+        :src="data.videoUrl"
+        class="thumb-video"
+        muted
+        playsinline
+        preload="metadata"
+        @loadedmetadata="seekToFirstFrame"
+        @mouseenter="($event.target as HTMLVideoElement).play()"
+        @mouseleave="($event.target as HTMLVideoElement).pause()"
+      />
+
       <span class="idx">#{{ String(data.index).padStart(2,'0') }}</span>
 
       <div v-if="data.status === 'generating'" class="spin-ring" />
@@ -73,8 +92,13 @@ function fmt(s: number) {
 
 /* thumbnail */
 .thumb {
-  height: 100px; position: relative;
+  height: 100px; position: relative; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
+  background: #0d0d18;
+}
+.thumb-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: .9;
 }
 .idx {
   position: absolute; top: 6px; left: 8px;

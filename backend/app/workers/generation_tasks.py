@@ -153,9 +153,22 @@ def run_generation_task(self, task_id: int):
         )
         db.add(media)
         db.commit()
+        db.refresh(media)
+
+        # If this task was dispatched from a Canvas shot node, sync its status
+        node_id = (task.params or {}).get("node_id")
+        if node_id and task.type == "video":
+            from app.models.canvas import CanvasShot
+            canvas_shot = db.query(CanvasShot).filter(CanvasShot.task_id == task.id).first()
+            if canvas_shot:
+                canvas_shot.status = "done"
+                canvas_shot.media_id = media.id
+                db.commit()
+
         notify_progress(project.id, task.id, task.type, "completed", {
             "file_url": result.file_url,
             "quality_score": result.metadata.get("quality_score"),
+            **({"node_id": node_id} if node_id else {}),
         })
 
     except Exception as e:
@@ -164,7 +177,17 @@ def run_generation_task(self, task_id: int):
             task.error_message = str(e)
             task.retry_count = (task.retry_count or 0) + 1
             db.commit()
-            notify_progress(task.project_id, task.id, task.type, "failed", {"error": str(e)})
+            node_id = (task.params or {}).get("node_id")
+            if node_id and task.type == "video":
+                from app.models.canvas import CanvasShot
+                canvas_shot = db.query(CanvasShot).filter(CanvasShot.task_id == task.id).first()
+                if canvas_shot:
+                    canvas_shot.status = "failed"
+                    db.commit()
+            notify_progress(task.project_id, task.id, task.type, "failed", {
+                "error": str(e),
+                **({"node_id": node_id} if node_id else {}),
+            })
         raise self.retry(exc=e)
 
     finally:

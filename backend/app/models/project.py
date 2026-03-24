@@ -32,6 +32,7 @@ class Project(Base):
     user = relationship("User", back_populates="projects")
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
     media = relationship("Media", back_populates="project", cascade="all, delete-orphan")
+    canvas = relationship("Canvas", back_populates="project", uselist=False, cascade="all, delete-orphan")
 
 
 class Task(Base):

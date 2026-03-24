@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.api.v1 import auth, project, generate, chat, pipeline, media, compare, export, gallery
+from app.api.v1 import auth, project, generate, chat, pipeline, media, compare, export, gallery, canvas
 
 settings = get_settings()
 
@@ -41,6 +41,7 @@ app.include_router(media.router, prefix="/api/v1")
 app.include_router(compare.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(gallery.router, prefix="/api/v1")
+app.include_router(canvas.router, prefix="/api/v1")
 
 
 @app.get("/health")

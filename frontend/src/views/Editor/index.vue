@@ -75,8 +75,25 @@ onMounted(async () => {
   project.value = pRes.data
   mediaList.value = mRes.data
 
-  // Derive typed media lists immediately after loading
-  videos.value = mediaList.value.filter((m: any) => m.type === 'video')
+  // Try to get canvas shot order so timeline matches canvas arrangement
+  const canvasOrder: Record<number, number> = {}
+  try {
+    const cRes = await api.get(`/projects/${projectId}/canvas`)
+    const shots: any[] = cRes.data.shots ?? []
+    shots.forEach(s => {
+      if (s.media_id != null) canvasOrder[s.media_id] = s.sort_order ?? 0
+    })
+  } catch { /* canvas may not exist for this project */ }
+
+  const hasCanvasOrder = Object.keys(canvasOrder).length > 0
+
+  videos.value = mediaList.value
+    .filter((m: any) => m.type === 'video')
+    .sort((a: any, b: any) =>
+      hasCanvasOrder
+        ? (canvasOrder[a.id] ?? 9999) - (canvasOrder[b.id] ?? 9999)
+        : a.sort_order - b.sort_order
+    )
   audios.value = mediaList.value.filter((m: any) => m.type === 'music' || m.type === 'audio')
   images.value = mediaList.value.filter((m: any) => m.type === 'image')
 
