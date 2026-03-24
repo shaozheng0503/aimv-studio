@@ -26,6 +26,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/canvas/:id?',
+      name: 'canvas',
+      component: () => import('@/views/Canvas/index.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/gallery',
       name: 'gallery',
       component: () => import('@/views/Gallery/index.vue'),
@@ -42,6 +48,7 @@ const pageTitles: Record<string, string> = {
   home: 'AIMV Studio',
   create: 'Create — AIMV Studio',
   projects: 'My Projects — AIMV Studio',
+  canvas: 'Canvas — AIMV Studio',
   editor: 'Editor — AIMV Studio',
   gallery: 'Gallery — AIMV Studio',
   login: 'Sign In — AIMV Studio',
