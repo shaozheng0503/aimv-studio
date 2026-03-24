@@ -26,6 +26,16 @@ async function submit() {
     error.value = e.response?.data?.detail || t('loginError')
   }
 }
+
+async function demoLogin() {
+  error.value = ''
+  try {
+    await auth.login('demo', 'demo123')
+    router.push((route.query.redirect as string) || '/projects')
+  } catch (e: any) {
+    error.value = e.response?.data?.detail || t('loginError')
+  }
+}
 </script>
 
 <template>
@@ -48,6 +58,13 @@ async function submit() {
 
       <button class="btn-primary full-width" @click="submit">
         {{ isRegister ? t('registerBtn') : t('loginBtn') }}
+      </button>
+
+      <div v-if="!isRegister" class="demo-divider">
+        <span>或</span>
+      </div>
+      <button v-if="!isRegister" class="btn-demo full-width" @click="demoLogin">
+        🎬 Demo 一键体验
       </button>
 
       <p class="toggle-text">
@@ -81,6 +98,21 @@ async function submit() {
 }
 .form-group input:focus { border-color: var(--accent-strong); }
 .full-width { width: 100%; padding: 12px; font-size: 15px; margin-bottom: 16px; }
+.demo-divider {
+  display: flex; align-items: center; gap: 12px; margin: 12px 0 8px;
+  color: var(--text-muted); font-size: 12px;
+}
+.demo-divider::before, .demo-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+.btn-demo {
+  padding: 11px; font-size: 14px; margin-bottom: 16px;
+  background: rgba(141, 92, 255, 0.08);
+  border: 1px dashed rgba(141, 92, 255, 0.4);
+  border-radius: var(--radius-sm); color: var(--accent);
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-demo:hover { background: rgba(141, 92, 255, 0.18); border-color: var(--accent-strong); }
 .toggle-text { font-size: 13px; color: var(--text-muted); }
 .error-msg {
   background: rgba(248, 113, 113, 0.1); color: var(--error);

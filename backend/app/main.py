@@ -7,8 +7,29 @@ from app.api.v1 import auth, project, generate, chat, pipeline, media, compare, 
 settings = get_settings()
 
 
+async def _seed_demo_account():
+    """Create demo / demo123 account if it doesn't exist."""
+    try:
+        from sqlalchemy import select
+        from app.core.database import async_session
+        from app.models.user import User
+        from app.core.security import hash_password
+        async with async_session() as db:
+            result = await db.execute(select(User).where(User.username == "demo"))
+            if result.scalar_one_or_none() is None:
+                db.add(User(
+                    username="demo",
+                    email="demo@aimv.local",
+                    password_hash=hash_password("demo123"),
+                ))
+                await db.commit()
+    except Exception:
+        pass  # DB may not be ready yet on first cold start
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _seed_demo_account()
     yield
     # Shutdown: close shared async Redis pool
     from app.utils.redis_pool import close_async_redis
