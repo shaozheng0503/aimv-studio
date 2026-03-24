@@ -12,7 +12,6 @@ const router = createRouter({
       path: '/create/:id?',
       name: 'create',
       component: () => import('@/views/Create/index.vue'),
-      meta: { requiresAuth: true },
     },
     {
       path: '/projects',

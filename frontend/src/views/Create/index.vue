@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
 import ComparePanel from '@/components/ComparePanel.vue'
 import { useLangStore } from '@/stores/lang'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const langStore = useLangStore()
 const { t } = storeToRefs(langStore)
+const auth = useAuthStore()
+const isGuest = computed(() => !auth.token)
+const showLoginModal = ref(false)
 const projectId = ref<number | null>(null)
 
 // Chat state
@@ -166,15 +170,24 @@ async function sendMessage() {
   messages.value.push({ role: 'user', content: text })
   scrollChat()
 
-  if (!projectId.value) {
-    // Create project first, then update URL so reload works correctly
-    const res = await api.post('/projects', { title: text.slice(0, 50) })
-    projectId.value = res.data.id
-    router.replace(`/create/${res.data.id}`)
-  }
-
   chatLoading.value = true
   try {
+    // Guest mode: stateless LLM call, no project created
+    if (isGuest.value) {
+      const history = messages.value.slice(0, -1) // exclude the message we just added
+      const res = await api.post('/chat/guest', { message: text, history })
+      messages.value.push({ role: 'assistant', content: res.data.content })
+      scrollChat()
+      return
+    }
+
+    if (!projectId.value) {
+      // Create project first, then update URL so reload works correctly
+      const res = await api.post('/projects', { title: text.slice(0, 50) })
+      projectId.value = res.data.id
+      router.replace(`/create/${res.data.id}`)
+    }
+
     const res = await api.post(`/projects/${projectId.value}/chat`, {
       message: text,
       stream: false,
@@ -193,7 +206,7 @@ async function sendMessage() {
         ElMessage.info(t.value('readyToPlan'))
       }
     }
-  } catch (e: any) {
+  } catch {
     messages.value.push({ role: 'assistant', content: t.value('chatError') })
   } finally {
     chatLoading.value = false
@@ -202,6 +215,7 @@ async function sendMessage() {
 }
 
 async function generatePlan() {
+  if (isGuest.value) { showLoginModal.value = true; return }
   if (!projectId.value) return
   chatLoading.value = true
   const lastUserMsg = [...messages.value].reverse().find(m => m.role === 'user')?.content || ''
@@ -233,6 +247,7 @@ async function generatePlan() {
 }
 
 async function startGenerating() {
+  if (isGuest.value) { showLoginModal.value = true; return }
   if (!projectId.value || !storyboard.value.length) {
     ElMessage.warning(t.value('planFirst'))
     return
@@ -318,7 +333,10 @@ function uploadAudio() {
     <aside class="chat-panel">
       <div class="chat-header">
         <h3>{{ t('aiDirector') }}</h3>
-        <button class="btn-ghost btn-sm" @click="uploadAudio" :title="t('uploadAudio')">{{ t('uploadAudio') }}</button>
+        <div class="chat-header-right">
+          <span v-if="isGuest" class="guest-badge">{{ t('guestHint') }}</span>
+          <button class="btn-ghost btn-sm" @click="uploadAudio" :title="t('uploadAudio')">{{ t('uploadAudio') }}</button>
+        </div>
       </div>
       <div class="chat-messages" ref="chatMessagesEl">
         <div v-for="(msg, i) in messages" :key="i" :class="['msg', msg.role]">
@@ -380,6 +398,20 @@ function uploadAudio() {
         </div>
       </div>
     </main>
+
+    <!-- Login prompt for guests -->
+    <div v-if="showLoginModal" class="login-overlay" @click.self="showLoginModal = false">
+      <div class="login-prompt card">
+        <h3>{{ t('loginRequired') }}</h3>
+        <p>{{ t('loginToGenerate') }}</p>
+        <div class="login-prompt-actions">
+          <button class="btn-ghost" @click="showLoginModal = false">{{ t('cancel') }}</button>
+          <button class="btn-primary" @click="router.push({ name: 'login', query: { redirect: route.fullPath } })">
+            {{ t('loginBtn') }} / {{ t('registerBtn') }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- A/B Compare Modal -->
     <ComparePanel
@@ -512,6 +544,25 @@ function uploadAudio() {
   padding: 12px 16px; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
 }
+.chat-header-right { display: flex; align-items: center; gap: 8px; }
+.guest-badge {
+  font-size: 10px; color: var(--text-muted);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 100px; padding: 2px 8px;
+}
+
+/* Login prompt overlay */
+.login-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.login-prompt {
+  width: 380px; padding: 32px; text-align: center;
+}
+.login-prompt h3 { font-size: 18px; margin-bottom: 10px; }
+.login-prompt p { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; line-height: 1.6; }
+.login-prompt-actions { display: flex; gap: 12px; justify-content: center; }
 .chat-header h3 {
   font-size: 15px; font-weight: 600;
   background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;

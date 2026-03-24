@@ -79,6 +79,7 @@ class ChatMessage(BaseModel):
     message: str
     generate_plan: bool = False
     stream: bool = False
+    history: list[dict] | None = None  # guest mode: pass prior turns
 
 
 class ChatResponse(BaseModel):
@@ -96,6 +97,24 @@ async def _load_project(project_id: int, user: User, db: AsyncSession) -> Projec
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+@router.post("/chat/guest")
+async def chat_guest(req: ChatMessage):
+    """Stateless chat for unauthenticated guests — no project, no persistence."""
+    prior = req.history or []
+    # Strip system/non-standard roles so LLM client only sees user/assistant
+    history = [m for m in prior if m.get("role") in ("user", "assistant")]
+    history.append({"role": "user", "content": req.message})
+
+    response_text = await _get_llm().chat(history, stream=False)
+    if not isinstance(response_text, str):
+        chunks: list[str] = []
+        async for chunk in response_text:
+            chunks.append(chunk)
+        response_text = "".join(chunks)
+
+    return ChatResponse(role="assistant", content=response_text)
 
 
 @router.post("/projects/{project_id}/chat")
