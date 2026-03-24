@@ -5,7 +5,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
 import tempfile
-import shutil
 from pathlib import Path
 
 from app.core.database import get_db
@@ -35,11 +34,20 @@ async def upload_audio(
     if not file.filename or not file.filename.lower().endswith((".mp3", ".wav", ".flac", ".m4a")):
         raise HTTPException(status_code=400, detail="Unsupported audio format. Use MP3/WAV/FLAC/M4A.")
 
-    # Save to temp file
+    # Save to temp file — use async UploadFile.read() to avoid blocking the event loop
     suffix = Path(file.filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
+
+    async def _write_upload(dest: str) -> None:
+        with open(dest, "wb") as f:
+            while True:
+                chunk = await file.read(1 << 20)  # 1 MB chunks
+                if not chunk:
+                    break
+                f.write(chunk)
+
+    await _write_upload(tmp_path)
 
     try:
         # Run music analysis first (CPU-bound, offload to thread pool)
@@ -51,9 +59,9 @@ async def upload_audio(
 
         analysis = await asyncio.to_thread(_analyze, tmp_path)
 
-        # Upload to object storage after analysis succeeds
+        # Upload to object storage (sync MinIO client, offload to thread pool)
         content_type = file.content_type or "audio/mpeg"
-        file_url = upload_file(tmp_path, content_type)
+        file_url = await asyncio.to_thread(upload_file, tmp_path, content_type)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
@@ -103,12 +111,20 @@ async def upload_image(
 
     suffix = Path(file.filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
+    async def _write_img(dest: str) -> None:
+        with open(dest, "wb") as f:
+            while True:
+                chunk = await file.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+
+    await _write_img(tmp_path)
     try:
         content_type = file.content_type or "image/jpeg"
-        file_url = upload_file(tmp_path, content_type)
+        file_url = await asyncio.to_thread(upload_file, tmp_path, content_type)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

@@ -21,7 +21,14 @@ from app.models.user import User
 from app.models.project import Project
 
 router = APIRouter(tags=["chat"])
-llm = LLMClient()
+_llm: LLMClient | None = None
+
+
+def _get_llm() -> LLMClient:
+    global _llm
+    if _llm is None:
+        _llm = LLMClient()
+    return _llm
 
 # Intent extraction tool schema for LLM function calling
 _INTENT_TOOLS = [
@@ -149,7 +156,7 @@ async def chat(
     if req.stream:
         async def event_stream():
             full_text = ""
-            stream = await llm.chat(history, stream=True)
+            stream = await _get_llm().chat(history, stream=True)
             if isinstance(stream, str):
                 yield f"data: {json.dumps({'content': stream})}\n\n"
                 full_text = stream
@@ -170,7 +177,7 @@ async def chat(
     # Falls back to a second llm.chat() only when the model returns no text
     # (rare — happens when tool_choice forces a tool call with no accompanying reply).
     intent_extracted: dict | None = None
-    tool_result, response_text = await llm.chat_with_tools(history, _INTENT_TOOLS)
+    tool_result, response_text = await _get_llm().chat_with_tools(history, _INTENT_TOOLS)
 
     if tool_result:
         intent_extracted = tool_result
@@ -194,7 +201,7 @@ async def chat(
 
     # If the tool-call turn returned no text, fall back to a plain chat call
     if not response_text:
-        response_text = await llm.chat(history, stream=False)
+        response_text = await _get_llm().chat(history, stream=False)
         if not isinstance(response_text, str):
             chunks = []
             async for chunk in response_text:

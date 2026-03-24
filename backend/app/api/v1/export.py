@@ -76,7 +76,7 @@ async def export_video(
             ]
             srt_content = dummy.to_srt() or None
 
-    # Create export task
+    # Create export task — output path generated in the worker via tempfile
     task = Task(
         project_id=project.id,
         type="export",
@@ -87,7 +87,6 @@ async def export_video(
             "add_watermark": req.add_watermark,
             "watermark_text": req.watermark_text,
             "srt_content": srt_content,
-            "output_path": f"/tmp/export_{project.id}_{req.platform}.mp4",
         },
     )
     db.add(task)

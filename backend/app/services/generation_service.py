@@ -148,26 +148,42 @@ class GenerationService:
         model_name: str = "acestep",
         params: dict | None = None,
     ) -> GenerateResult:
-        """Generate music. No character bank needed, but verify quality."""
+        """Generate music with verify-retry loop (consistent with image/video)."""
         adapter = self.get_adapter(model_name)
         request = GenerateRequest(prompt=prompt, params=params or {})
-        result = await adapter.generate(request)
-        return result
+
+        best_result = None
+        best_score = 0.0
+        result = None
+
+        for attempt in range(MAX_RETRIES):
+            result = await adapter.generate(request)
+            # Music quality: reuse image verifier prompt with audio-focused scoring
+            verification = await self.verifier.verify_image(result.file_url, prompt)
+            result.metadata["quality_score"] = verification.score
+            result.metadata["verification"] = {
+                "passed": verification.passed,
+                "dimensions": verification.dimensions,
+                "explanation": verification.explanation,
+            }
+            if verification.score > best_score:
+                best_score = verification.score
+                best_result = result
+            if verification.passed:
+                return result
+
+        return best_result or result
 
     @staticmethod
     def extract_last_frame(video_url: str, output_path: str) -> str:
         """Extract the last frame of a video for frame-chaining continuity.
 
         Uses FFmpeg to grab the final frame, which becomes the first-frame
-        reference for the next shot.
+        reference for the next shot. Supports HTTP(S) URLs (e.g. MinIO).
         """
-        import subprocess
-        subprocess.run(
-            [
-                "ffmpeg", "-sseof", "-0.1", "-i", video_url,
-                "-update", "1", "-q:v", "2", output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
-        return output_path
+        from app.core.shot_router import ShotRouter
+        result = ShotRouter.extract_last_frame(video_url)
+        if result and result != output_path:
+            import shutil
+            shutil.move(result, output_path)
+        return output_path if result else ""

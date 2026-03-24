@@ -1,11 +1,19 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import { useLangStore } from '@/stores/lang'
+import { useAuthStore } from '@/stores/auth'
 import { storeToRefs } from 'pinia'
 
 const langStore = useLangStore()
 const { lang } = storeToRefs(langStore)
 const route = useRoute()
+
+// Restore user info on page refresh if a token exists
+const auth = useAuthStore()
+onMounted(() => {
+  if (auth.token) auth.fetchUser()
+})
 </script>
 
 <template>

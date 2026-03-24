@@ -6,16 +6,16 @@ from app.models.base import Base
 class Project(Base):
     __tablename__ = "projects"
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
-    status: Mapped[str] = mapped_column(String(20), default="draft")
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     # draft -> planning -> generating -> composing -> done
 
     # LLM conversation context
     chat_history: Mapped[list | None] = mapped_column(JSON, default=list)
 
     # Style & config
-    visual_style: Mapped[str | None] = mapped_column(String(50))
+    visual_style: Mapped[str | None] = mapped_column(String(50), index=True)
     music_style: Mapped[str | None] = mapped_column(String(50))
     mood: Mapped[str | None] = mapped_column(String(50))
     style_config: Mapped[dict | None] = mapped_column(JSON, default=dict)
@@ -37,11 +37,11 @@ class Project(Base):
 class Task(Base):
     __tablename__ = "tasks"
 
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     type: Mapped[str] = mapped_column(String(20))
     # image / video / music / compose / export
     model_name: Mapped[str | None] = mapped_column(String(50))
-    status: Mapped[str] = mapped_column(String(20), default="pending")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     # pending -> running -> completed / failed
     params: Mapped[dict | None] = mapped_column(JSON, default=dict)
     result: Mapped[dict | None] = mapped_column(JSON, default=dict)

@@ -5,19 +5,22 @@ from app.config import get_settings
 import uuid
 from pathlib import Path
 
-# Cache whether the bucket has already been confirmed to exist,
-# so each upload doesn't need an extra network round-trip.
+# Module-level singletons — created once, reused across uploads.
+_minio_client: Minio | None = None
 _bucket_ready = False
 
 
 def get_minio_client() -> Minio:
-    settings = get_settings()
-    return Minio(
-        settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        secure=settings.minio_secure,
-    )
+    global _minio_client
+    if _minio_client is None:
+        settings = get_settings()
+        _minio_client = Minio(
+            settings.minio_endpoint,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=settings.minio_secure,
+        )
+    return _minio_client
 
 
 def ensure_bucket():

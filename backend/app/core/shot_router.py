@@ -94,6 +94,8 @@ class ShotRouter:
             subprocess.run(
                 [
                     "ffmpeg", "-y",
+                    "-allowed_extensions", "ALL",
+                    "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
                     "-sseof", "-0.1",
                     "-i", video_path,
                     "-update", "1",

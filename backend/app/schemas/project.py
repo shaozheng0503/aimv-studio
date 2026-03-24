@@ -16,6 +16,7 @@ class ProjectUpdate(BaseModel):
     mood: str | None = None
     style_config: dict | None = None
     model_preferences: dict | None = None
+    storyboard: list | None = None
 
 
 class ProjectResponse(BaseModel):

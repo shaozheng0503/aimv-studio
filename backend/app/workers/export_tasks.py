@@ -26,7 +26,8 @@ def run_export_task(self, task_id: int):
         params = task.params or {}
         source = params["source_url"]
         platform = params["platform"]
-        output_path = params["output_path"]
+        _fd, output_path = tempfile.mkstemp(suffix=".mp4", prefix=f"export_{task.project_id}_{platform}_")
+        os.close(_fd)
         tmp_files.append(output_path)
 
         compose = ComposeService()
@@ -42,14 +43,16 @@ def run_export_task(self, task_id: int):
                 srt_f.write(params["srt_content"])
                 srt_file = srt_f.name
             tmp_files.append(srt_file)
-            sub_path = output_path.replace(".mp4", "_sub.mp4")
+            _fd_sub, sub_path = tempfile.mkstemp(suffix=".mp4", prefix=f"export_{task.project_id}_sub_")
+            os.close(_fd_sub)
             tmp_files.append(sub_path)
             compose.add_subtitles(output_path, srt_file, sub_path)
             output_path = sub_path
 
         # Step 3: Add watermark if requested
         if params.get("add_watermark"):
-            wm_path = output_path.replace(".mp4", "_wm.mp4")
+            _fd_wm, wm_path = tempfile.mkstemp(suffix=".mp4", prefix=f"export_{task.project_id}_wm_")
+            os.close(_fd_wm)
             tmp_files.append(wm_path)
             compose.add_watermark(output_path, params.get("watermark_text", "AIMV"), wm_path)
             output_path = wm_path

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
@@ -8,6 +8,7 @@ import ComparePanel from '@/components/ComparePanel.vue'
 import { useLangStore } from '@/stores/lang'
 
 const route = useRoute()
+const router = useRouter()
 const langStore = useLangStore()
 const { t } = storeToRefs(langStore)
 const projectId = ref<number | null>(null)
@@ -30,6 +31,38 @@ const generating = ref(false)
 const previewUrl = ref('')
 const showCompare = ref(false)
 
+// Storyboard editing
+const editingSegIdx = ref<number | null>(null)
+const editingSegData = ref<any>(null)
+const savingStoryboard = ref(false)
+
+function startEditSeg(i: number) {
+  editingSegIdx.value = i
+  editingSegData.value = { ...storyboard.value[i] }
+}
+
+function cancelEditSeg() {
+  editingSegIdx.value = null
+  editingSegData.value = null
+}
+
+async function saveEditSeg() {
+  if (editingSegIdx.value === null || !editingSegData.value || !projectId.value) return
+  const updated = [...storyboard.value]
+  updated[editingSegIdx.value] = { ...storyboard.value[editingSegIdx.value], ...editingSegData.value }
+  savingStoryboard.value = true
+  try {
+    await api.put(`/projects/${projectId.value}`, { storyboard: updated })
+    storyboard.value = updated
+    editingSegIdx.value = null
+    editingSegData.value = null
+  } catch {
+    ElMessage.error('保存失败，请重试')
+  } finally {
+    savingStoryboard.value = false
+  }
+}
+
 // Progress state from WebSocket
 const progress = ref<Record<string, any>>({
   image: 'pending',
@@ -39,6 +72,8 @@ const progress = ref<Record<string, any>>({
 })
 const videoProgress = ref({ segment: 0, total: 0, pct: 0 })
 let ws: WebSocket | null = null
+let wsRetryCount = 0
+const WS_MAX_RETRIES = 5
 
 onMounted(async () => {
   const id = route.params.id
@@ -56,17 +91,23 @@ onUnmounted(() => {
 async function loadProject() {
   if (!projectId.value) return
   try {
-    const res = await api.get(`/projects/${projectId.value}`)
-    const p = res.data
+    const [projRes, mediaRes] = await Promise.all([
+      api.get(`/projects/${projectId.value}`),
+      api.get(`/projects/${projectId.value}/media`),
+    ])
+    const p = projRes.data
     visualStyle.value = p.visual_style || ''
     mood.value = p.mood || ''
     storyboard.value = p.storyboard || []
-    // Restore model preferences
     if (p.model_preferences?.video) videoModel.value = p.model_preferences.video
     if (p.model_preferences?.music) musicModel.value = p.model_preferences.music
-    // Restore chat history (requires ProjectResponse to include chat_history)
     if (p.chat_history?.length) {
       messages.value = p.chat_history
+    }
+    // Restore final video preview (survives page reload)
+    const finalVideo = (mediaRes.data as any[]).find((m: any) => m.type === 'final_video')
+    if (finalVideo?.file_url) {
+      previewUrl.value = finalVideo.file_url
     }
   } catch { /* project may not exist yet */ }
 }
@@ -74,14 +115,18 @@ async function loadProject() {
 function connectWebSocket() {
   if (!projectId.value) return
   const wsBase = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws')
-  const token = localStorage.getItem('token') || ''
-  ws = new WebSocket(`${wsBase}/ws/projects/${projectId.value}/progress?token=${encodeURIComponent(token)}`)
+  // Token sent as first message after connect (not in URL, to avoid logging)
+  ws = new WebSocket(`${wsBase}/ws/projects/${projectId.value}/progress`)
+  ws.onopen = () => {
+    wsRetryCount = 0
+    const token = localStorage.getItem('token') || ''
+    if (token) ws?.send(JSON.stringify({ type: 'auth', token }))
+  }
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
       progress.value[data.type] = data.status
 
-      // Track per-segment video progress
       if (data.type === 'video' && data.pct !== undefined) {
         videoProgress.value = { segment: data.segment || 0, total: data.total || 0, pct: data.pct }
       }
@@ -102,9 +147,14 @@ function connectWebSocket() {
     ElMessage.warning(t.value('connectionLost'))
   }
   ws.onclose = () => {
-    // Auto-reconnect if generation is still in progress
-    if (generating.value) {
-      setTimeout(() => connectWebSocket(), 3000)
+    // Auto-reconnect with backoff, up to WS_MAX_RETRIES attempts
+    if (generating.value && wsRetryCount < WS_MAX_RETRIES) {
+      wsRetryCount++
+      const delay = Math.min(3000 * wsRetryCount, 30000)
+      setTimeout(() => connectWebSocket(), delay)
+    } else if (wsRetryCount >= WS_MAX_RETRIES) {
+      generating.value = false
+      ElMessage.error(t.value('connectionLost'))
     }
   }
 }
@@ -117,9 +167,10 @@ async function sendMessage() {
   scrollChat()
 
   if (!projectId.value) {
-    // Create project first
+    // Create project first, then update URL so reload works correctly
     const res = await api.post('/projects', { title: text.slice(0, 50) })
     projectId.value = res.data.id
+    router.replace(`/create/${res.data.id}`)
   }
 
   chatLoading.value = true
@@ -402,12 +453,45 @@ function uploadAudio() {
       <div v-if="storyboard.length" class="storyboard-summary">
         <h4>{{ t('storyboard') }}（{{ storyboard.length }} 段）</h4>
         <div class="seg-list">
-          <div v-for="(seg, i) in storyboard" :key="i" class="seg-item">
-            <span class="seg-num">#{{ i + 1 }}</span>
-            <span :class="['badge', seg.label === 'sing' ? 'badge-warning' : 'badge-info']">
-              {{ seg.label === 'sing' ? t('labelSing') : t('labelStory') }}
-            </span>
-            <span class="seg-desc">{{ (seg.description || '').slice(0, 40) }}</span>
+          <div v-for="(seg, i) in storyboard" :key="i">
+            <!-- Edit mode -->
+            <div v-if="editingSegIdx === i" class="seg-editor">
+              <div class="seg-editor-row">
+                <button
+                  :class="['label-toggle', editingSegData.label === 'sing' ? 'active-sing' : 'active-story']"
+                  @click="editingSegData.label = editingSegData.label === 'sing' ? 'story' : 'sing'"
+                >{{ editingSegData.label === 'sing' ? t('labelSing') : t('labelStory') }}</button>
+                <span class="seg-num">#{{ i + 1 }}</span>
+              </div>
+              <textarea
+                v-model="editingSegData.description"
+                class="seg-textarea"
+                rows="3"
+                placeholder="场景描述..."
+              />
+              <textarea
+                v-if="editingSegData.video_prompt !== undefined"
+                v-model="editingSegData.video_prompt"
+                class="seg-textarea seg-textarea-sm"
+                rows="2"
+                placeholder="视频提示词（可选，留空使用描述）..."
+              />
+              <div class="seg-editor-actions">
+                <button class="btn-ghost btn-xs" @click="cancelEditSeg">{{ t('cancel') }}</button>
+                <button class="btn-primary btn-xs" @click="saveEditSeg" :disabled="savingStoryboard">
+                  {{ savingStoryboard ? '...' : t('save') }}
+                </button>
+              </div>
+            </div>
+            <!-- View mode -->
+            <div v-else class="seg-item seg-item-clickable" @click="startEditSeg(i)">
+              <span class="seg-num">#{{ i + 1 }}</span>
+              <span :class="['badge', seg.label === 'sing' ? 'badge-warning' : 'badge-info']">
+                {{ seg.label === 'sing' ? t('labelSing') : t('labelStory') }}
+              </span>
+              <span class="seg-desc">{{ (seg.description || '').slice(0, 36) }}</span>
+              <span class="seg-edit-hint">✎</span>
+            </div>
           </div>
         </div>
       </div>
@@ -497,7 +581,28 @@ function uploadAudio() {
 .seg-list { display: flex; flex-direction: column; gap: 6px; }
 .seg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .seg-num { color: var(--text-muted); font-weight: 600; min-width: 24px; }
-.seg-desc { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg-desc { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.seg-item-clickable { cursor: pointer; border-radius: var(--radius-sm); padding: 4px 2px; transition: background 0.15s; }
+.seg-item-clickable:hover { background: var(--card); }
+.seg-item-clickable:hover .seg-edit-hint { opacity: 1; }
+.seg-edit-hint { font-size: 11px; color: var(--text-muted); opacity: 0; margin-left: auto; transition: opacity 0.15s; }
+
+.seg-editor { background: var(--card); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 4px; }
+.seg-editor-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.label-toggle {
+  font-size: 11px; padding: 3px 10px; border-radius: 100px; cursor: pointer; border: 1px solid;
+  transition: all 0.15s;
+}
+.active-sing { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.5); color: #fbbf24; }
+.active-story { background: rgba(141,92,255,0.15); border-color: rgba(141,92,255,0.5); color: var(--accent-strong); }
+.seg-textarea {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text);
+  font-size: 12px; resize: vertical; outline: none; margin-bottom: 6px;
+}
+.seg-textarea:focus { border-color: var(--accent-strong); }
+.seg-textarea-sm { font-size: 11px; color: var(--text-muted); }
+.seg-editor-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* Progress bar */
 .seg-counter { margin-left: auto; font-size: 11px; color: var(--text-muted); }

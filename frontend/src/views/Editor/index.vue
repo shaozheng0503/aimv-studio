@@ -17,6 +17,9 @@ const addWatermark = ref(false)
 const watermarkText = ref('Made with AIMV')
 const addSubtitles = ref(false)
 const showExportDialog = ref(false)
+const videos = ref<any[]>([])
+const audios = ref<any[]>([])
+const images = ref<any[]>([])
 
 // Export polling
 let exportPollTimer: ReturnType<typeof setInterval> | null = null
@@ -108,10 +111,6 @@ async function doExport() {
     exporting.value = false
   }
 }
-
-const videos = ref<any[]>([])
-const audios = ref<any[]>([])
-const images = ref<any[]>([])
 </script>
 
 <template>

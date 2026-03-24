@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
+import { useLangStore } from '@/stores/lang'
 
 const props = defineProps<{
   projectId: number
@@ -12,6 +14,8 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'picked', taskId: number, model: string): void
 }>()
+
+const { t } = storeToRefs(useLangStore())
 
 const prompt = ref('')
 const compareType = ref('video')
@@ -36,7 +40,7 @@ const modelOptions: Record<string, { label: string; value: string }[]> = {
     { label: 'Google Lyria', value: 'lyria' },
   ],
   image: [
-    { label: 'Qwen Image', value: 'qwen-image' },
+    { label: 'Z-Image', value: 'z-image' },
   ],
 }
 
@@ -44,11 +48,11 @@ const currentModels = computed(() => modelOptions[compareType.value] || [])
 
 async function startCompare() {
   if (selectedModels.value.length < 2) {
-    ElMessage.warning('Select at least 2 models')
+    ElMessage.warning(t.value('compareSelectModels'))
     return
   }
   if (!prompt.value.trim()) {
-    ElMessage.warning('Enter a prompt')
+    ElMessage.warning(t.value('compareEnterPrompt'))
     return
   }
 
@@ -61,13 +65,13 @@ async function startCompare() {
       models: selectedModels.value,
     })
     groupId.value = res.data.compare_group_id
-    results.value = res.data.tasks.map((t: any) => ({
-      ...t,
+    results.value = res.data.tasks.map((task: any) => ({
+      ...task,
       status: 'pending',
     }))
     pollResults()
   } catch {
-    ElMessage.error('Failed to start comparison')
+    ElMessage.error(t.value('compareStartError'))
     loading.value = false
   }
 }
@@ -90,10 +94,10 @@ async function pollResults() {
 async function pickWinner(taskId: number, model: string) {
   try {
     await api.post(`/projects/${props.projectId}/compare/${groupId.value}/pick/${taskId}`)
-    ElMessage.success(`Selected ${model} version!`)
+    ElMessage.success(t.value('comparePickSuccess').replace('{model}', model))
     emit('picked', taskId, model)
   } catch {
-    ElMessage.error('Failed to save selection')
+    ElMessage.error(t.value('comparePickError'))
   }
 }
 </script>
@@ -102,22 +106,22 @@ async function pickWinner(taskId: number, model: string) {
   <div v-if="visible" class="compare-overlay" @click.self="emit('close')">
     <div class="compare-modal">
       <div class="compare-header">
-        <h2>A/B Compare</h2>
-        <button class="btn-ghost btn-sm" @click="emit('close')">Close</button>
+        <h2>{{ t('abCompare') }}</h2>
+        <button class="btn-ghost btn-sm" @click="emit('close')">{{ t('cancel') }}</button>
       </div>
 
       <!-- Setup -->
       <div class="compare-setup" v-if="!results.length">
         <div class="setup-row">
-          <label>Type</label>
+          <label>{{ t('compareType') }}</label>
           <el-select v-model="compareType" style="width: 160px" @change="selectedModels = []">
-            <el-option label="Video" value="video" />
-            <el-option label="Music" value="music" />
-            <el-option label="Image" value="image" />
+            <el-option :label="t('taskVideo')" value="video" />
+            <el-option :label="t('taskMusic')" value="music" />
+            <el-option :label="t('taskImage')" value="image" />
           </el-select>
         </div>
         <div class="setup-row">
-          <label>Models</label>
+          <label>{{ t('compareModels') }}</label>
           <el-checkbox-group v-model="selectedModels">
             <el-checkbox v-for="m in currentModels" :key="m.value" :value="m.value" :label="m.value">
               {{ m.label }}
@@ -125,11 +129,11 @@ async function pickWinner(taskId: number, model: string) {
           </el-checkbox-group>
         </div>
         <div class="setup-row">
-          <label>Prompt</label>
-          <textarea v-model="prompt" rows="3" placeholder="Describe what you want to generate..." />
+          <label>{{ t('chatPlaceholder') }}</label>
+          <textarea v-model="prompt" rows="3" :placeholder="t('comparePromptPlaceholder')" />
         </div>
         <button class="btn-primary" @click="startCompare" :disabled="loading">
-          {{ loading ? 'Generating...' : 'Start Comparison' }}
+          {{ loading ? t('generating') : t('compareStart') }}
         </button>
       </div>
 
@@ -149,28 +153,28 @@ async function pickWinner(taskId: number, model: string) {
                 <audio v-else-if="compareType === 'music'" :src="r.result.file_url" controls class="result-audio" />
                 <img v-else-if="compareType === 'image'" :src="r.result.file_url" class="result-media" />
               </div>
-              <div v-else-if="r.status === 'failed'" class="preview-error">Generation failed</div>
+              <div v-else-if="r.status === 'failed'" class="preview-error">{{ t('statusFailed') }}</div>
               <div v-else class="preview-loading">
                 <div class="spinner"></div>
-                Generating...
+                {{ t('generating') }}
               </div>
             </div>
             <div class="card-score" v-if="r.quality_score">
-              Quality: {{ r.quality_score.toFixed(1) }}/5
+              {{ t('compareQuality') }}: {{ r.quality_score.toFixed(1) }}/5
             </div>
             <button
               v-if="r.status === 'completed'"
               class="btn-primary pick-btn"
               @click="pickWinner(r.id, r.model_name)"
             >
-              Pick This
+              {{ t('comparePick') }}
             </button>
           </div>
         </div>
 
         <div class="compare-actions">
           <button class="btn-ghost" @click="results = []; groupId = ''">
-            New Comparison
+            {{ t('compareNew') }}
           </button>
         </div>
       </div>

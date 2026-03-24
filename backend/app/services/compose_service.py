@@ -20,7 +20,8 @@ class ComposeService:
         For HTTP inputs, clips are downloaded to a temp dir first so that the
         concat demuxer can copy streams without re-encoding.
         """
-        import shutil, urllib.request
+        import shutil
+        import httpx
 
         resolved: list[str] = []
         tmp_dir = Path(tempfile.mkdtemp())
@@ -28,7 +29,11 @@ class ComposeService:
             for i, p in enumerate(video_paths):
                 if p.startswith("http://") or p.startswith("https://"):
                     dest = str(tmp_dir / f"clip_{i:04d}.mp4")
-                    urllib.request.urlretrieve(p, dest)
+                    with httpx.stream("GET", p, timeout=120, follow_redirects=True) as r:
+                        r.raise_for_status()
+                        with open(dest, "wb") as f:
+                            for chunk in r.iter_bytes(chunk_size=1 << 20):
+                                f.write(chunk)
                     resolved.append(dest)
                 else:
                     resolved.append(p)

@@ -5,6 +5,17 @@ import json
 from typing import AsyncIterator
 from app.config import get_settings
 
+# Module-level shared client — connection pool is reused across all LLM calls.
+# Timeout is passed per-request so individual calls can override it.
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient()
+    return _http_client
+
 SYSTEM_PROMPT = """你是 AIMV 的 AI 导演，帮助用户规划和创作专业音乐视频。
 
 你的能力：
@@ -46,80 +57,63 @@ class LLMClient:
 
     async def _call_openai(self, messages: list[dict]) -> str:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-                json={
-                    "model": "gpt-4o",
-                    "messages": full_messages,
-                    "max_tokens": 2000,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        resp = await _get_http_client().post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+            json={"model": "gpt-4o", "messages": full_messages, "max_tokens": 2000},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
     async def _stream_openai(self, messages: list[dict]) -> AsyncIterator[str]:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST",
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-                json={
-                    "model": "gpt-4o",
-                    "messages": full_messages,
-                    "max_tokens": 2000,
-                    "stream": True,
-                },
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: ") and line != "data: [DONE]":
-                        try:
-                            chunk = json.loads(line[6:])
-                            delta = chunk["choices"][0].get("delta", {}).get("content", "")
-                            if delta:
-                                yield delta
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            pass
+        async with _get_http_client().stream(
+            "POST",
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+            json={"model": "gpt-4o", "messages": full_messages, "max_tokens": 2000, "stream": True},
+            timeout=120,
+        ) as resp:
+            async for line in resp.aiter_lines():
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    try:
+                        chunk = json.loads(line[6:])
+                        delta = chunk["choices"][0].get("delta", {}).get("content", "")
+                        if delta:
+                            yield delta
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        pass
 
     async def _call_gemini(self, messages: list[dict]) -> str:
         contents = self._to_gemini_format(messages)
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-                params={"key": self.settings.gemini_api_key},
-                json={
-                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                    "contents": contents,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+        resp = await _get_http_client().post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            params={"key": self.settings.gemini_api_key},
+            json={"system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]}, "contents": contents},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
     async def _stream_gemini(self, messages: list[dict]) -> AsyncIterator[str]:
         contents = self._to_gemini_format(messages)
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST",
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
-                params={"key": self.settings.gemini_api_key, "alt": "sse"},
-                json={
-                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                    "contents": contents,
-                },
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: "):
-                        try:
-                            chunk = json.loads(line[6:])
-                            text = chunk["candidates"][0]["content"]["parts"][0].get("text", "")
-                            if text:
-                                yield text
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            pass
+        async with _get_http_client().stream(
+            "POST",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
+            params={"key": self.settings.gemini_api_key, "alt": "sse"},
+            json={"system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]}, "contents": contents},
+            timeout=120,
+        ) as resp:
+            async for line in resp.aiter_lines():
+                if line.startswith("data: "):
+                    try:
+                        chunk = json.loads(line[6:])
+                        text = chunk["candidates"][0]["content"]["parts"][0].get("text", "")
+                        if text:
+                            yield text
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        pass
 
     def _to_gemini_format(self, messages: list[dict]) -> list[dict]:
         contents = []
@@ -155,31 +149,31 @@ class LLMClient:
         self, messages: list[dict], tools: list[dict]
     ) -> tuple[dict | None, str]:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-                json={
-                    "model": "gpt-4o",
-                    "messages": full_messages,
-                    "tools": tools,
-                    "tool_choice": "auto",
-                    "max_tokens": 1000,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            choice = data.get("choices", [{}])[0]
-            message = choice.get("message", {})
-            content = message.get("content") or ""
-            tool_calls = message.get("tool_calls", [])
-            intent = None
-            if tool_calls:
-                args_str = tool_calls[0].get("function", {}).get("arguments", "{}")
-                try:
-                    intent = json.loads(args_str)
-                except json.JSONDecodeError:
-                    pass
+        resp = await _get_http_client().post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+            json={
+                "model": "gpt-4o",
+                "messages": full_messages,
+                "tools": tools,
+                "tool_choice": "auto",
+                "max_tokens": 1000,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        choice = data.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        content = message.get("content") or ""
+        tool_calls = message.get("tool_calls", [])
+        intent = None
+        if tool_calls:
+            args_str = tool_calls[0].get("function", {}).get("arguments", "{}")
+            try:
+                intent = json.loads(args_str)
+            except json.JSONDecodeError:
+                pass
         return intent, content
 
     async def _call_gemini_tools(
@@ -195,27 +189,27 @@ class LLMClient:
                 "description": fn.get("description", ""),
                 "parameters": fn.get("parameters", {}),
             })
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-                params={"key": self.settings.gemini_api_key},
-                json={
-                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                    "contents": contents,
-                    "tools": [{"function_declarations": fn_decls}],
-                    "tool_config": {"function_calling_config": {"mode": "AUTO"}},
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            intent = None
-            text_parts = []
-            for part in parts:
-                if "functionCall" in part:
-                    intent = part["functionCall"].get("args", {})
-                elif "text" in part:
-                    text_parts.append(part["text"])
+        resp = await _get_http_client().post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            params={"key": self.settings.gemini_api_key},
+            json={
+                "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                "contents": contents,
+                "tools": [{"function_declarations": fn_decls}],
+                "tool_config": {"function_calling_config": {"mode": "AUTO"}},
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        intent = None
+        text_parts = []
+        for part in parts:
+            if "functionCall" in part:
+                intent = part["functionCall"].get("args", {})
+            elif "text" in part:
+                text_parts.append(part["text"])
         return intent, "".join(text_parts)
 
     def _fallback_response(self, messages: list[dict]) -> str:

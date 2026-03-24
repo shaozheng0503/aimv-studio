@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useLangStore } from '@/stores/lang'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const { t } = useLangStore()
 const isRegister = ref(false)
@@ -19,7 +20,8 @@ async function submit() {
     } else {
       await auth.login(form.value.username, form.value.password)
     }
-    router.push('/projects')
+    const redirect = (route.query.redirect as string) || '/projects'
+    router.push(redirect)
   } catch (e: any) {
     error.value = e.response?.data?.detail || t('loginError')
   }

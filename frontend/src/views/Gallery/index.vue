@@ -5,7 +5,7 @@ import api from '@/api'
 import { useLangStore } from '@/stores/lang'
 
 const langStore = useLangStore()
-const { t } = storeToRefs(langStore)
+const { t, lang } = storeToRefs(langStore)
 
 interface GalleryItem {
   id: number
@@ -24,6 +24,7 @@ const page = ref(1)
 const total = ref(0)
 const filterStyle = ref('')
 const previewItem = ref<GalleryItem | null>(null)
+const likingIds = ref(new Set<number>())
 
 const styles = ['', '韩娱', '国风', '赛博朋克', '复古迪斯科', '独立电影', '都市甜酷', '幻想童话']
 const styleLabels = computed<Record<string, string>>(() => ({
@@ -50,10 +51,14 @@ async function fetchGallery() {
 }
 
 async function like(item: GalleryItem) {
+  if (likingIds.value.has(item.id)) return
+  likingIds.value.add(item.id)
   try {
     const res = await api.post(`/gallery/${item.id}/like`)
     item.likes = res.data.likes
-  } catch { /* */ }
+  } catch { /* */ } finally {
+    likingIds.value.delete(item.id)
+  }
 }
 
 function changeStyle(s: string) {
@@ -117,10 +122,10 @@ function changeStyle(s: string) {
         <div class="card-body">
           <h3>{{ item.title }}</h3>
           <div class="card-meta">
-            <button class="like-btn" @click.stop="like(item)">
+            <button class="like-btn" :disabled="likingIds.has(item.id)" @click.stop="like(item)">
               <span class="heart">&#9829;</span> {{ item.likes }}
             </button>
-            <span class="date">{{ new Date(item.created_at).toLocaleDateString() }}</span>
+            <span class="date">{{ new Date(item.created_at).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US') }}</span>
           </div>
         </div>
       </div>
@@ -143,7 +148,7 @@ function changeStyle(s: string) {
           <div class="preview-meta">
             <span v-if="previewItem.visual_style" class="badge badge-info">{{ previewItem.visual_style }}</span>
             <span v-if="previewItem.mood" class="badge badge-warning">{{ previewItem.mood }}</span>
-            <button class="like-btn" @click="like(previewItem!)">
+            <button class="like-btn" :disabled="likingIds.has(previewItem!.id)" @click="like(previewItem!)">
               <span class="heart">&#9829;</span> {{ previewItem.likes }}
             </button>
           </div>

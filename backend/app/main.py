@@ -50,27 +50,38 @@ async def health():
 # WebSocket for real-time generation progress
 from fastapi import WebSocket, WebSocketDisconnect
 import redis.asyncio as aioredis
+import asyncio
 import json
 
 
 @app.websocket("/ws/projects/{project_id}/progress")
-async def ws_progress(websocket: WebSocket, project_id: int, token: str = ""):
+async def ws_progress(websocket: WebSocket, project_id: int):
     """WebSocket endpoint for real-time generation progress.
 
-    Requires a valid JWT passed as ?token=<access_token> query parameter.
-    Closes with 4001 if the token is invalid or doesn't own the project.
+    Auth flow: accept the connection first, then expect the client to send
+    {"type": "auth", "token": "<jwt>"} as the first message.  This keeps
+    tokens out of URLs (access logs, browser history).
+    Closes with 4001 on invalid token, 4003 if project not owned by user.
     """
     from app.core.security import decode_access_token
     from app.core.database import async_session
     from app.models.project import Project
     from sqlalchemy import select
 
+    await websocket.accept()
+    try:
+        # Wait up to 10 s for auth message
+        auth_msg = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        token = auth_msg.get("token", "") if isinstance(auth_msg, dict) else ""
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
     user_id = decode_access_token(token)
     if user_id is None:
         await websocket.close(code=4001)
         return
 
-    # Verify project ownership before subscribing
     async with async_session() as db:
         result = await db.execute(
             select(Project.id).where(Project.id == project_id, Project.user_id == user_id)
@@ -79,7 +90,6 @@ async def ws_progress(websocket: WebSocket, project_id: int, token: str = ""):
             await websocket.close(code=4003)
             return
 
-    await websocket.accept()
     r = aioredis.from_url(settings.redis_url)
     pubsub = r.pubsub()
     channel = f"project:{project_id}:progress"
