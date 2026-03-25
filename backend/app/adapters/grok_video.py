@@ -43,22 +43,22 @@ class GrokVideoAdapter(BaseModelAdapter):
                 return GenerateResult(file_url=data["video_url"], metadata=data)
             raise ValueError(f"Grok did not return a task_id: {data}")
 
-        async def _check() -> tuple[bool, str]:
-            async with httpx.AsyncClient(timeout=30) as c:
-                r = await c.get(
+        async with httpx.AsyncClient(timeout=30) as poll_client:
+            async def _check() -> tuple[bool, str]:
+                r = await poll_client.get(
                     f"{_BASE}/v1/video/status/{task_id}",
                     headers=headers,
                 )
                 r.raise_for_status()
                 d = r.json()
-            status = d.get("status", "")
-            if status == "completed":
-                return True, d.get("video_url", "")
-            if status in ("failed", "cancelled"):
-                raise RuntimeError(f"Grok Video task {status}: {d.get('error', '')}")
-            return False, ""
+                status = d.get("status", "")
+                if status == "completed":
+                    return True, d.get("video_url", "")
+                if status in ("failed", "cancelled"):
+                    raise RuntimeError(f"Grok Video task {status}: {d.get('error', '')}")
+                return False, ""
 
-        video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
+            video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
         return GenerateResult(
             file_url=video_url,
             metadata={"model": "grok-video", "task_id": task_id},

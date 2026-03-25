@@ -16,6 +16,13 @@ def _get_http_client() -> httpx.AsyncClient:
         _http_client = httpx.AsyncClient()
     return _http_client
 
+
+async def close_http_client() -> None:
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+        _http_client = None
+
 SYSTEM_PROMPT = """你是 AIMV 的 AI 导演，帮助用户规划和创作专业音乐视频。
 
 你的能力：

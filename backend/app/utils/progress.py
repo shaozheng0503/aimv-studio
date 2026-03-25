@@ -16,7 +16,10 @@ def _get_redis():
 
 
 def notify_progress(project_id: int, task_id: int, task_type: str, status: str, detail: dict | None = None):
-    """Push a progress event to the project's WebSocket channel."""
+    """Push a progress event to the project's WebSocket channel.
+
+    Silently ignores Redis errors so a Redis outage never fails a generation task.
+    """
     channel = f"project:{project_id}:progress"
     payload = {
         "task_id": task_id,
@@ -24,4 +27,7 @@ def notify_progress(project_id: int, task_id: int, task_type: str, status: str, 
         "status": status,
         **(detail or {}),
     }
-    _get_redis().publish(channel, json.dumps(payload))
+    try:
+        _get_redis().publish(channel, json.dumps(payload))
+    except Exception:
+        pass

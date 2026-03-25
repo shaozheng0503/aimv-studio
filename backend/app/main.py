@@ -31,9 +31,11 @@ async def _seed_demo_account():
 async def lifespan(app: FastAPI):
     await _seed_demo_account()
     yield
-    # Shutdown: close shared async Redis pool
+    # Shutdown: close shared connection pools
     from app.utils.redis_pool import close_async_redis
+    from app.core.llm_client import close_http_client
     await close_async_redis()
+    await close_http_client()
 
 
 app = FastAPI(

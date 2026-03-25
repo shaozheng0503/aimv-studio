@@ -26,6 +26,16 @@ class ProjectUpdate(BaseModel):
     model_preferences: dict | None = None
     storyboard: list | None = None
 
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str | None) -> str | None:
+        if v is not None:
+            v = v.strip()
+            if not v:
+                raise ValueError("Title cannot be empty")
+            return v[:200]
+        return v
+
 
 class ProjectListResponse(BaseModel):
     """Lightweight response for list views — omits heavy chat_history and character_bank."""

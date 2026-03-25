@@ -49,9 +49,9 @@ async def upload_audio(
                     break
                 f.write(chunk)
 
-    await _write_upload(tmp_path)
-
     try:
+        await _write_upload(tmp_path)
+
         # Run music analysis first (CPU-bound, offload to thread pool)
         from app.core.music_analyzer import MusicAnalyzer
 
@@ -125,8 +125,8 @@ async def upload_image(
                     break
                 f.write(chunk)
 
-    await _write_img(tmp_path)
     try:
+        await _write_img(tmp_path)
         content_type = file.content_type or "image/jpeg"
         file_url = await asyncio.to_thread(upload_file, tmp_path, content_type)
     finally:

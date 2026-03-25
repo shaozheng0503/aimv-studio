@@ -28,9 +28,10 @@ async def check_rate_limit(key: str, limit: int, window: int) -> None:
     from fastapi import HTTPException
     try:
         r = get_async_redis()
-        count = await r.incr(key)
-        if count == 1:
-            await r.expire(key, window)
+        pipe = r.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, window)
+        count, _ = await pipe.execute()
         if count > limit:
             raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
     except HTTPException:

@@ -3,12 +3,13 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.api.v1.auth import get_current_user
 from app.models.user import User
-from app.models.project import Project, Task
+from app.models.project import Project, Task, Media
 from app.models.canvas import Canvas, CanvasShot
 
 router = APIRouter(prefix="/projects/{project_id}/canvas", tags=["canvas"])
@@ -108,23 +109,13 @@ async def get_canvas(
     await _get_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
 
-    # Load shots with media eagerly
     shots_result = await db.execute(
-        select(CanvasShot)
-        .where(CanvasShot.canvas_id == canvas.id)
-        .order_by(CanvasShot.sort_order)
-    )
-    shots = shots_result.scalars().all()
-
-    # Resolve media for each shot
-    from sqlalchemy.orm import selectinload
-    shots_result2 = await db.execute(
         select(CanvasShot)
         .where(CanvasShot.canvas_id == canvas.id)
         .options(selectinload(CanvasShot.media))
         .order_by(CanvasShot.sort_order)
     )
-    shots_with_media = shots_result2.scalars().all()
+    shots_with_media = shots_result.scalars().all()
 
     return CanvasResponse(
         project_id=project_id,
@@ -201,7 +192,7 @@ async def save_canvas(
     shots_result = await db.execute(
         select(CanvasShot)
         .where(CanvasShot.canvas_id == canvas.id)
-        .options(__import__("sqlalchemy.orm", fromlist=["selectinload"]).selectinload(CanvasShot.media))
+        .options(selectinload(CanvasShot.media))
         .order_by(CanvasShot.sort_order)
     )
     shots = shots_result.scalars().all()
@@ -312,7 +303,7 @@ async def generate_all_pending(
     if not pending:
         return {"dispatched": 0, "message": "No pending shots"}
 
-    dispatched = 0
+    dispatched_node_ids: list[str] = []
     for shot in pending:
         if not shot.prompt:
             continue
@@ -333,7 +324,7 @@ async def generate_all_pending(
 
         shot.status = "generating"
         shot.task_id = task.id
-        dispatched += 1
+        dispatched_node_ids.append(shot.node_id)
 
     await db.commit()
 
@@ -343,7 +334,7 @@ async def generate_all_pending(
         if shot.task_id:
             run_generation_task.delay(shot.task_id)
 
-    return {"dispatched": dispatched}
+    return {"dispatched": len(dispatched_node_ids), "node_ids": dispatched_node_ids}
 
 
 @router.get("/shots/{node_id}", response_model=CanvasShotResponse)
@@ -357,12 +348,10 @@ async def get_shot_status(
     await _get_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
 
-    from sqlalchemy.orm import selectinload
-    from sqlalchemy.orm import selectinload as _sil
     result = await db.execute(
         select(CanvasShot)
         .where(CanvasShot.canvas_id == canvas.id, CanvasShot.node_id == node_id)
-        .options(_sil(CanvasShot.media))
+        .options(selectinload(CanvasShot.media))
     )
     shot = result.scalar_one_or_none()
     if not shot:
@@ -376,7 +365,6 @@ async def get_shot_status(
             if task.status == "completed":
                 shot.status = "done"
                 if not shot.media_id:
-                    from app.models.project import Media
                     media_result = await db.execute(
                         select(Media).where(Media.task_id == shot.task_id)
                     )
@@ -384,12 +372,162 @@ async def get_shot_status(
                     if media:
                         shot.media_id = media.id
                 await db.commit()
-                await db.refresh(shot)
+                # Re-query with selectinload — db.refresh() only reloads columns,
+                # leaving the `media` relationship expired → MissingGreenlet in async.
+                refreshed = await db.execute(
+                    select(CanvasShot)
+                    .where(CanvasShot.id == shot.id)
+                    .options(selectinload(CanvasShot.media))
+                )
+                shot = refreshed.scalar_one()
             elif task.status == "failed":
                 shot.status = "failed"
                 await db.commit()
 
     return CanvasShotResponse.from_orm_with_media(shot)
+
+
+class MusicGenerateRequest(BaseModel):
+    node_id: str
+    description: str = ""
+    lyrics: str = ""
+    bpm: float = 0
+    duration: float = -1
+    vocal_language: str = "unknown"
+    instrumental: bool = False
+
+
+@router.post("/music/generate")
+async def generate_music_node(
+    project_id: int,
+    req: MusicGenerateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dispatch ACE-Step V1.5 music generation for a Song node on the canvas."""
+    await _get_project(project_id, user, db)
+
+    task = Task(
+        project_id=project_id,
+        type="music",
+        model_name="acestep",
+        status="pending",
+        params={
+            "node_id": req.node_id,
+            "prompt": req.description or "cinematic music",
+            "description": req.description,
+            "lyrics": req.lyrics,
+            "bpm": req.bpm,
+            "duration": req.duration,
+            "vocal_language": req.vocal_language,
+            "instrumental": req.instrumental,
+        },
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    from app.workers.generation_tasks import run_generation_task
+    run_generation_task.delay(task.id)
+
+    return {"task_id": task.id, "node_id": req.node_id, "status": "pending"}
+
+
+@router.get("/music/{node_id}")
+async def get_music_node_status(
+    project_id: int,
+    node_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Poll ACE-Step generation status for a Song node."""
+    await _get_project(project_id, user, db)
+
+    result = await db.execute(
+        select(Task)
+        .where(
+            Task.project_id == project_id,
+            Task.type == "music",
+            Task.params.op('->>')('node_id') == node_id,
+        )
+        .order_by(Task.id.desc())
+        .limit(1)
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="No music task for this node")
+
+    audio_url = None
+    if task.status == "completed":
+        media_result = await db.execute(
+            select(Media).where(Media.task_id == task.id)
+        )
+        media = media_result.scalar_one_or_none()
+        if media:
+            audio_url = media.file_url
+
+    return {
+        "task_id": task.id,
+        "node_id": node_id,
+        "status": task.status,
+        "audio_url": audio_url,
+        "error": task.error_message,
+    }
+
+
+class PromptSuggestRequest(BaseModel):
+    shot_index: int = 1
+    canvas_context: dict = {}   # same structure as ShotGenerateRequest.canvas_context
+    existing_prompt: str = ""   # current prompt (may be empty)
+
+
+@router.post("/prompt-suggest")
+async def suggest_prompt(
+    project_id: int,
+    req: PromptSuggestRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use LLM to generate a shot prompt from canvas context."""
+    await _get_project(project_id, user, db)
+
+    ctx = req.canvas_context
+    parts: list[str] = []
+    if ctx.get("music"):
+        for m in ctx["music"]:
+            parts.append(f"音乐情绪: {m.get('mood','')} BPM:{m.get('bpm','')}")
+    if ctx.get("characters"):
+        for c in ctx["characters"]:
+            parts.append(f"角色: {c.get('name','')} (LoRA:{c.get('lora_id','')})")
+    if ctx.get("scene"):
+        for s in ctx["scene"]:
+            parts.append(f"场景: {s.get('name','')} 风格:{s.get('style','')} 灯光:{s.get('lighting','')}")
+    if ctx.get("prev_frames"):
+        parts.append(f"前置镜头数: {len(ctx['prev_frames'])}个")
+
+    context_str = "\n".join(parts) if parts else "无特定上下文"
+    existing = f"\n当前草稿prompt：{req.existing_prompt}" if req.existing_prompt else ""
+
+    system_msg = (
+        "你是一位专业 MV 导演和 AI 视频生成专家。"
+        "根据给定的画布上下文，为指定镜头生成一段简洁有画面感的英文 video generation prompt。"
+        "要求：纯英文，50词以内，包含主体动作、镜头语言、光线氛围，不要包含解释性文字。"
+    )
+    user_msg = (
+        f"镜头序号: #{req.shot_index}\n"
+        f"上下文信息:\n{context_str}{existing}\n\n"
+        "请直接输出 prompt，不要添加任何解释、前缀或引号。"
+    )
+
+    try:
+        from app.core.llm_client import LLMClient
+        llm = LLMClient()
+        result = await llm.chat([
+            {"role": "user", "content": f"{system_msg}\n\n{user_msg}"},
+        ])
+        return {"prompt": result.strip()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
 
 
 # ─── internal helpers ──────────────────────────────────────────────────────────

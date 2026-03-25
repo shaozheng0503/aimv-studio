@@ -23,4 +23,7 @@ class ZImageAdapter(BaseModelAdapter):
             )
             resp.raise_for_status()
             data = resp.json()
-        return GenerateResult(file_url=data.get("image_url", ""))
+        image_url = data.get("image_url", "")
+        if not image_url:
+            raise RuntimeError(f"Z-Image returned no image_url: {data}")
+        return GenerateResult(file_url=image_url)

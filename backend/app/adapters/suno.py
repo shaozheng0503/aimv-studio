@@ -36,22 +36,22 @@ class SunoAdapter(BaseModelAdapter):
 
         _final: dict = {}
 
-        async def _check() -> tuple[bool, str]:
-            async with httpx.AsyncClient(timeout=30) as c:
-                r = await c.get(
+        async with httpx.AsyncClient(timeout=30) as poll_client:
+            async def _check() -> tuple[bool, str]:
+                r = await poll_client.get(
                     f"https://api.suno.ai/v1/songs/{song_id}", headers=headers
                 )
                 r.raise_for_status()
                 d = r.json()
-            status = d.get("status", "")
-            if status == "completed":
-                _final.update(d)
-                return True, d.get("audio_url", "")
-            if status == "failed":
-                raise RuntimeError(f"Suno generation failed: {d.get('error', 'unknown')}")
-            return False, ""
+                status = d.get("status", "")
+                if status == "completed":
+                    _final.update(d)
+                    return True, d.get("audio_url", "")
+                if status == "failed":
+                    raise RuntimeError(f"Suno generation failed: {d.get('error', 'unknown')}")
+                return False, ""
 
-        audio_url = await poll_until_done(_check, interval=5.0, timeout=300.0)
+            audio_url = await poll_until_done(_check, interval=5.0, timeout=300.0)
         return GenerateResult(
             file_url=audio_url,
             duration=_final.get("duration"),

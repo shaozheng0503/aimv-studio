@@ -377,7 +377,7 @@ async function generateShot(nodeId: string) {
   try {
     await api.post(`/projects/${projectId}/canvas/shots/${nodeId}/generate`, {
       prompt: node.data.prompt ?? '',
-      model_name: String(node.data.model ?? 'veo').toLowerCase().replace(/\s/g, '_'),
+      model_name: String(node.data.model ?? 'veo').toLowerCase(),
       duration: node.data.duration ?? 5,
       time_anchor: node.data.timeAnchor ?? null,
       canvas_context: payload?.canvas_context ?? {},
@@ -409,7 +409,9 @@ function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
   const defaultData: Record<string, any> = {
     shot:  { index: shotCount + 1, prompt: '', model: 'Veo 3.1', duration: 5, status: 'pending',
              gradient: 'linear-gradient(135deg,#1a1a2e,#16213e)', segment: null, timeAnchor: null },
-    song:  { title: '新音乐', mood: 'neutral', bpm: 120, duration: 180, genre: 'Electronic' },
+    song:  { title: '新音乐', mood: 'neutral', bpm: 120, duration: 180, genre: 'Electronic',
+             description: '', lyrics: '', vocalLanguage: 'unknown', instrumental: false,
+             generateStatus: 'idle', audioUrl: null },
     char:  { name: '新角色', description: '', loraId: '', gender: 'other' },
     scene: { name: '新场景', style: '', location: '', lighting: '' },
   }[type]
@@ -512,6 +514,55 @@ function onKeydown(e: KeyboardEvent) {
   else if (selectedEdgeId.value) deleteSelectedEdge()
 }
 
+// ─── Music generation (ACE-Step V1.5) ────────────────────────────────────
+const musicPollingIntervals: Record<string, ReturnType<typeof setInterval>> = {}
+
+function startMusicPolling(nodeId: string) {
+  if (musicPollingIntervals[nodeId] || !projectId) return
+  musicPollingIntervals[nodeId] = setInterval(async () => {
+    try {
+      const { data } = await api.get(`/projects/${projectId}/canvas/music/${nodeId}`)
+      if (data.status === 'completed') {
+        stopMusicPolling(nodeId)
+        updateNodeData(nodeId, { generateStatus: 'done', audioUrl: data.audio_url })
+        ElMessage.success('音乐生成完成 ✓')
+      } else if (data.status === 'failed') {
+        stopMusicPolling(nodeId)
+        updateNodeData(nodeId, { generateStatus: 'failed' })
+        ElMessage.error('音乐生成失败')
+      }
+    } catch { stopMusicPolling(nodeId) }
+  }, 4000)
+}
+
+function stopMusicPolling(nodeId: string) {
+  if (musicPollingIntervals[nodeId]) {
+    clearInterval(musicPollingIntervals[nodeId])
+    delete musicPollingIntervals[nodeId]
+  }
+}
+
+async function generateMusic(nodeId: string) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node || node.type !== 'song' || !projectId) return
+  updateNodeData(nodeId, { generateStatus: 'generating' })
+  try {
+    await api.post(`/projects/${projectId}/canvas/music/generate`, {
+      node_id: nodeId,
+      description: node.data.description ?? node.data.title ?? '',
+      lyrics: node.data.lyrics ?? '',
+      bpm: node.data.bpm ?? 0,
+      duration: node.data.duration ?? -1,
+      vocal_language: node.data.vocalLanguage ?? 'unknown',
+      instrumental: node.data.instrumental ?? false,
+    })
+    startMusicPolling(nodeId)
+  } catch {
+    updateNodeData(nodeId, { generateStatus: 'failed' })
+    ElMessage.error('音乐生成请求失败')
+  }
+}
+
 // ─── AI prompt suggest ────────────────────────────────────────────────────
 const suggestingPrompt = ref(false)
 
@@ -602,13 +653,13 @@ async function generateAll() {
   try {
     const { data } = await api.post(`/projects/${projectId}/canvas/generate-all`)
     if (data.dispatched > 0) {
+      const dispatchedIds: Set<string> = new Set(data.node_ids ?? [])
       nodes.value = nodes.value.map((n: any) =>
-        n.type === 'shot' && n.data.status === 'pending'
+        n.type === 'shot' && dispatchedIds.has(n.id)
           ? { ...n, data: { ...n.data, status: 'generating' } }
           : n
       )
-      nodes.value.filter((n: any) => n.type === 'shot' && n.data.status === 'generating')
-        .forEach((n: any) => startPolling(n.id))
+      dispatchedIds.forEach(id => startPolling(id))
     }
   } catch { /* ignore */ }
 }
@@ -827,17 +878,31 @@ function connectWS() {
       const nodeId: string | undefined = msg.node_id
       if (!nodeId) return
       if (msg.status === 'completed') {
-        stopPolling(nodeId)
-        _patchNodeStatus(nodeId, 'done', msg.file_url)
+        if (msg.type === 'music') {
+          stopMusicPolling(nodeId)
+          updateNodeData(nodeId, { generateStatus: 'done', audioUrl: msg.file_url })
+          ElMessage.success('音乐生成完成 ✓')
+        } else {
+          stopPolling(nodeId)
+          _patchNodeStatus(nodeId, 'done', msg.file_url)
+        }
       } else if (msg.status === 'failed') {
-        stopPolling(nodeId)
-        _patchNodeStatus(nodeId, 'failed')
+        if (msg.type === 'music') {
+          stopMusicPolling(nodeId)
+          updateNodeData(nodeId, { generateStatus: 'failed' })
+          ElMessage.error('音乐生成失败')
+        } else {
+          stopPolling(nodeId)
+          _patchNodeStatus(nodeId, 'failed')
+        }
       }
     } catch { /* ignore parse errors */ }
   }
 
-  ws.onclose = () => {
-    if (!wsDestroyed) setTimeout(connectWS, 5000)
+  ws.onclose = (ev) => {
+    // 4001 = bad/missing token, 4003 = project not owned — no point retrying
+    const terminal = ev.code === 4001 || ev.code === 4003
+    if (!wsDestroyed && !terminal) setTimeout(connectWS, 5000)
   }
 }
 
@@ -991,6 +1056,7 @@ onUnmounted(() => {
   if (playRAF) cancelAnimationFrame(playRAF)
   if (saveTimer) clearTimeout(saveTimer)
   Object.keys(pollingIntervals).forEach(stopPolling)
+  Object.keys(musicPollingIntervals).forEach(stopMusicPolling)
   ws?.close()
   window.removeEventListener('keydown', onKeydown)
 })
@@ -1310,6 +1376,82 @@ onUnmounted(() => {
                 #{{ String((n as any).data.index).padStart(2,'0') }}
               </span>
               <span v-if="!(canvasContext as any)?.connectedShots?.length" class="cb-empty">&#x6682;&#x65E0;&#x8FDE;&#x63A5;</span>
+            </div>
+          </div>
+
+          <!-- ── ACE-Step V1.5 Music Generation ───────────────────── -->
+          <div class="music-gen-section">
+            <div class="music-gen-header">
+              <span>&#x1F3B6; ACE-Step &#x97F3;&#x4E50;&#x751F;&#x6210;</span>
+            </div>
+            <div class="panel-section" style="padding:0;margin-top:8px">
+              <label>&#x97F3;&#x4E50;&#x63CF;&#x8FF0;</label>
+              <textarea
+                class="panel-input"
+                rows="3"
+                :value="(selectedNode.data.description as string ?? '')"
+                placeholder="描述想生成的音乐，例如：'暗黑戏剧古风，高潮激昂，弦乐+打击乐'"
+                @input="updateNodeData(selectedNodeId!, { description: ($event.target as HTMLTextAreaElement).value })"
+              />
+            </div>
+            <div class="panel-section" style="padding:0;margin-top:8px">
+              <label>&#x6B4C;&#x8BCD; (&#x53EF;&#x9009;)</label>
+              <textarea
+                class="panel-input"
+                rows="4"
+                :value="(selectedNode.data.lyrics as string ?? '')"
+                placeholder="[第一段]\n在星空下..."
+                @input="updateNodeData(selectedNodeId!, { lyrics: ($event.target as HTMLTextAreaElement).value })"
+              />
+            </div>
+            <div class="panel-row" style="margin-top:8px">
+              <div class="panel-field">
+                <label>&#x4EBA;&#x58F0;&#x8BED;&#x8A00;</label>
+                <select
+                  class="panel-select"
+                  :value="(selectedNode.data.vocalLanguage as string ?? 'unknown')"
+                  @change="updateNodeData(selectedNodeId!, { vocalLanguage: ($event.target as HTMLSelectElement).value })"
+                >
+                  <option value="unknown">&#x81EA;&#x52A8;</option>
+                  <option value="zh">&#x4E2D;&#x6587;</option>
+                  <option value="en">English</option>
+                  <option value="ja">&#x65E5;&#x672C;&#x8BED;</option>
+                  <option value="ko">&#x97E9;&#x8BED;</option>
+                </select>
+              </div>
+              <div class="panel-field" style="justify-content:flex-end;align-items:center">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:rgba(255,255,255,.6)">
+                  <input
+                    type="checkbox"
+                    :checked="!!(selectedNode.data.instrumental)"
+                    @change="updateNodeData(selectedNodeId!, { instrumental: ($event.target as HTMLInputElement).checked })"
+                    style="accent-color:#8d5cff"
+                  />
+                  &#x7EAF;&#x97F3;&#x4E50;
+                </label>
+              </div>
+            </div>
+            <div class="panel-actions" style="margin-top:12px">
+              <button
+                class="btn-gen-music"
+                :class="{ 'btn-gen-music--fail': selectedNode.data.generateStatus === 'failed' }"
+                :disabled="selectedNode.data.generateStatus === 'generating'"
+                @click="generateMusic(selectedNodeId!)"
+              >
+                <span v-if="selectedNode.data.generateStatus === 'generating'">&#x1F3B5; &#x751F;&#x6210;&#x4E2D;&#x2026;</span>
+                <span v-else-if="selectedNode.data.generateStatus === 'done'">&#x21BA; &#x91CD;&#x65B0;&#x751F;&#x6210;</span>
+                <span v-else-if="selectedNode.data.generateStatus === 'failed'">&#x21BA; &#x91CD;&#x8BD5;</span>
+                <span v-else>&#x26A1; AI &#x751F;&#x6210;&#x97F3;&#x4E50;</span>
+              </button>
+            </div>
+            <div v-if="selectedNode.data.generateStatus === 'done' && selectedNode.data.audioUrl" class="panel-section" style="padding:0;margin-top:12px">
+              <label class="layer-label">&#x1F50A; &#x9884;&#x89C8;</label>
+              <audio
+                :src="(selectedNode.data.audioUrl as string)"
+                controls
+                class="panel-audio"
+                :key="(selectedNode.data.audioUrl as string)"
+              />
             </div>
           </div>
         </template>
@@ -2002,6 +2144,30 @@ label {
   width: 100%; border-radius: 8px;
   background: #000; display: block;
   max-height: 160px; object-fit: contain;
+}
+
+/* music gen section */
+.music-gen-section {
+  border-top: 1px solid rgba(141,92,255,.2);
+  padding: 14px 16px 16px;
+  background: rgba(141,92,255,.04);
+}
+.music-gen-header {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  color: #a78bfa; text-transform: uppercase; margin-bottom: 2px;
+}
+.btn-gen-music {
+  flex: 1; padding: 9px; border-radius: 8px; border: none;
+  background: linear-gradient(135deg, #8d5cff, #5c9fff);
+  color: #fff; font-weight: 700; font-size: .85rem; cursor: pointer;
+  width: 100%; transition: opacity .2s;
+}
+.btn-gen-music:disabled { opacity: .5; cursor: not-allowed; }
+.btn-gen-music:hover:not(:disabled) { opacity: .88; }
+.btn-gen-music--fail { background: linear-gradient(135deg,#f87171,#f3b2ff) !important; }
+.panel-audio {
+  width: 100%; border-radius: 8px; display: block;
+  background: rgba(0,0,0,.3);
 }
 
 /* import from storyboard button */

@@ -13,6 +13,7 @@ from app.adapters.wan_video import WanVideoAdapter
 from app.adapters.seedance import SeedanceAdapter
 from app.adapters.veo import VeoAdapter
 from app.adapters.grok_video import GrokVideoAdapter
+from app.adapters.google_image import GeminiImageAdapter
 from app.core.character_bank import CharacterBank
 from app.core.verifier import VerifierAgent, MAX_RETRIES
 
@@ -26,7 +27,40 @@ ADAPTER_MAP: dict[str, type[BaseModelAdapter]] = {
     "seedance": SeedanceAdapter,
     "veo": VeoAdapter,
     "grok": GrokVideoAdapter,
+    "gemini-image": GeminiImageAdapter,
 }
+
+# Maps human-readable / frontend display names → canonical adapter keys.
+# Allows the frontend to store display names (e.g. "Veo 3.1") without breaking.
+_MODEL_NAME_ALIASES: dict[str, str] = {
+    # Space variants (canonical display names lowercased)
+    "veo 3.1": "veo",
+    "veo3.1": "veo",
+    "seedance 2.0": "seedance",
+    "seedance2.0": "seedance",
+    "wan 2.2": "wan2.2",
+    "wan2.2": "wan2.2",
+    "kling 2.0": "kling",
+    "hailuo 2.0": "hailuo",
+    "grok video 1.0": "grok",
+    "grok video": "grok",
+    # Underscore variants (from frontend toLowerCase().replace(/\s/g,'_') legacy)
+    "veo_3.1": "veo",
+    "seedance_2.0": "seedance",
+    "kling_2.0": "kling",
+    "hailuo_2.0": "hailuo",
+    "grok_video_1.0": "grok",
+    "grok_video": "grok",
+    "z_image": "z-image",
+    "gemini_image": "gemini-image",
+    "gemini image": "gemini-image",
+}
+
+
+def _normalize_model_name(name: str) -> str:
+    """Return the canonical adapter key for a (possibly display-form) model name."""
+    key = name.strip().lower()
+    return _MODEL_NAME_ALIASES.get(key, key)
 
 
 class GenerationService:
@@ -36,12 +70,13 @@ class GenerationService:
         self._adapter_instances: dict[str, BaseModelAdapter] = {}
 
     def get_adapter(self, model_name: str) -> BaseModelAdapter:
-        if model_name not in self._adapter_instances:
-            adapter_cls = ADAPTER_MAP.get(model_name)
+        canonical = _normalize_model_name(model_name)
+        if canonical not in self._adapter_instances:
+            adapter_cls = ADAPTER_MAP.get(canonical)
             if not adapter_cls:
-                raise ValueError(f"Unknown model: {model_name}")
-            self._adapter_instances[model_name] = adapter_cls()
-        return self._adapter_instances[model_name]
+                raise ValueError(f"Unknown model: {model_name!r} (resolved to {canonical!r})")
+            self._adapter_instances[canonical] = adapter_cls()
+        return self._adapter_instances[canonical]
 
     async def generate_image(
         self,
@@ -158,8 +193,7 @@ class GenerationService:
 
         for attempt in range(MAX_RETRIES):
             result = await adapter.generate(request)
-            # Music quality: reuse image verifier prompt with audio-focused scoring
-            verification = await self.verifier.verify_image(result.file_url, prompt)
+            verification = await self.verifier.verify_music(result.file_url, prompt)
             result.metadata["quality_score"] = verification.score
             result.metadata["verification"] = {
                 "passed": verification.passed,

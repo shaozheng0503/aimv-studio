@@ -149,7 +149,6 @@ async function togglePublish(p: any, event: Event) {
             <span class="meta-date">{{ new Date(p.created_at).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US') }}</span>
           </div>
           <div class="project-actions">
-            <button class="btn-ghost btn-xs" @click.stop="router.push(`/canvas/${p.id}`)">{{ t('enterCreate') }}</button>
             <button class="btn-ghost btn-xs btn-canvas" @click.stop="router.push(`/canvas/${p.id}`)">Canvas</button>
             <button v-if="p.status === 'done'" class="btn-ghost btn-xs" @click.stop="router.push(`/editor/${p.id}`)">{{ t('export') }}</button>
             <button

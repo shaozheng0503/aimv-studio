@@ -23,6 +23,15 @@ from app.models.project import Project
 router = APIRouter(tags=["chat"])
 _llm: LLMClient | None = None
 
+# Max messages sent to LLM per request (keeps most-recent context, avoids context overflow).
+# Full history is always saved to DB for display purposes.
+_LLM_HISTORY_WINDOW = 20
+
+
+def _trim_for_llm(history: list[dict]) -> list[dict]:
+    """Return the last _LLM_HISTORY_WINDOW messages for LLM calls."""
+    return history[-_LLM_HISTORY_WINDOW:] if len(history) > _LLM_HISTORY_WINDOW else history
+
 
 def _get_llm() -> LLMClient:
     global _llm
@@ -111,7 +120,7 @@ async def chat_guest(req: ChatMessage, request: Request):
     history = [m for m in prior if m.get("role") in ("user", "assistant")]
     history.append({"role": "user", "content": req.message})
 
-    response_text = await _get_llm().chat(history, stream=False)
+    response_text = await _get_llm().chat(_trim_for_llm(history), stream=False)
     if not isinstance(response_text, str):
         chunks: list[str] = []
         async for chunk in response_text:
@@ -179,7 +188,7 @@ async def chat(
     if req.stream:
         async def event_stream():
             full_text = ""
-            stream = await _get_llm().chat(history, stream=True)
+            stream = await _get_llm().chat(_trim_for_llm(history), stream=True)
             if isinstance(stream, str):
                 yield f"data: {json.dumps({'content': stream})}\n\n"
                 full_text = stream
@@ -200,7 +209,7 @@ async def chat(
     # Falls back to a second llm.chat() only when the model returns no text
     # (rare — happens when tool_choice forces a tool call with no accompanying reply).
     intent_extracted: dict | None = None
-    tool_result, response_text = await _get_llm().chat_with_tools(history, _INTENT_TOOLS)
+    tool_result, response_text = await _get_llm().chat_with_tools(_trim_for_llm(history), _INTENT_TOOLS)
 
     if tool_result:
         intent_extracted = tool_result
@@ -224,7 +233,7 @@ async def chat(
 
     # If the tool-call turn returned no text, fall back to a plain chat call
     if not response_text:
-        response_text = await _get_llm().chat(history, stream=False)
+        response_text = await _get_llm().chat(_trim_for_llm(history), stream=False)
         if not isinstance(response_text, str):
             chunks = []
             async for chunk in response_text:

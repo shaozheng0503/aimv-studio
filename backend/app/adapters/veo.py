@@ -54,21 +54,21 @@ class VeoAdapter(BaseModelAdapter):
         if not op_name:
             raise ValueError(f"Veo did not return an operation name: {op}")
 
-        async def _check() -> tuple[bool, str]:
-            async with httpx.AsyncClient(timeout=30) as c:
-                r = await c.get(f"{_BASE}/v1beta/{op_name}", headers=headers)
+        async with httpx.AsyncClient(timeout=30) as poll_client:
+            async def _check() -> tuple[bool, str]:
+                r = await poll_client.get(f"{_BASE}/v1beta/{op_name}", headers=headers)
                 r.raise_for_status()
                 data = r.json()
-            if data.get("done"):
-                videos = (
-                    data.get("response", {})
-                    .get("generatedSamples", [{}])
-                )
-                video_url = (videos[0] if videos else {}).get("video", {}).get("uri", "")
-                return True, video_url
-            return False, ""
+                if data.get("done"):
+                    videos = (
+                        data.get("response", {})
+                        .get("generatedSamples", [{}])
+                    )
+                    video_url = (videos[0] if videos else {}).get("video", {}).get("uri", "")
+                    return True, video_url
+                return False, ""
 
-        video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
+            video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
         return GenerateResult(
             file_url=video_url,
             metadata={"model": "veo-3.1", "operation": op_name},

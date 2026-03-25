@@ -29,6 +29,8 @@ async def start_pipeline(
         raise HTTPException(status_code=404, detail="Project not found")
     if not project.storyboard:
         raise HTTPException(status_code=400, detail="No storyboard found. Run planning first.")
+    if project.status in ("generating", "composing"):
+        raise HTTPException(status_code=409, detail="Pipeline already running for this project.")
 
     from app.workers.generation_tasks import run_full_pipeline
     run_full_pipeline.delay(project.id)

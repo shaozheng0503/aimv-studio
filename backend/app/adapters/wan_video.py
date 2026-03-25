@@ -23,8 +23,11 @@ class WanVideoAdapter(BaseModelAdapter):
             )
             resp.raise_for_status()
             data = resp.json()
+        video_url = data.get("video_url", "")
+        if not video_url:
+            raise RuntimeError(f"Wan2.2 returned no video_url: {data}")
         return GenerateResult(
-            file_url=data.get("video_url", ""),
+            file_url=video_url,
             duration=data.get("duration"),
             metadata=data,
         )

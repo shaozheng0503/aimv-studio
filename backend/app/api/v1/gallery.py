@@ -133,7 +133,7 @@ async def like_project(
         select(Project).where(Project.id == project_id).with_for_update()
     )
     project = result.scalar_one_or_none()
-    if not project:
+    if not project or not (project.style_config or {}).get("published"):
         raise HTTPException(status_code=404, detail="Project not found")
     config = project.style_config or {}
     config["likes"] = config.get("likes", 0) + 1

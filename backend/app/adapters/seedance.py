@@ -44,19 +44,19 @@ class SeedanceAdapter(BaseModelAdapter):
                 return GenerateResult(file_url=data["video_url"], metadata=data)
             raise ValueError(f"Seedance did not return a task_id: {data}")
 
-        async def _check() -> tuple[bool, str]:
-            async with httpx.AsyncClient(timeout=30) as c:
-                r = await c.get(f"{_BASE}/v1/task/{task_id}", headers=headers)
+        async with httpx.AsyncClient(timeout=30) as poll_client:
+            async def _check() -> tuple[bool, str]:
+                r = await poll_client.get(f"{_BASE}/v1/task/{task_id}", headers=headers)
                 r.raise_for_status()
                 d = r.json()
-            status = d.get("status", "")
-            if status == "completed":
-                return True, d.get("video_url", "")
-            if status == "failed":
-                raise RuntimeError(f"Seedance task failed: {d.get('error', 'unknown')}")
-            return False, ""
+                status = d.get("status", "")
+                if status == "completed":
+                    return True, d.get("video_url", "")
+                if status == "failed":
+                    raise RuntimeError(f"Seedance task failed: {d.get('error', 'unknown')}")
+                return False, ""
 
-        video_url = await poll_until_done(_check, interval=3.0, timeout=600.0)
+            video_url = await poll_until_done(_check, interval=3.0, timeout=600.0)
         return GenerateResult(
             file_url=video_url,
             metadata={"model": "seedance-2.0", "task_id": task_id},

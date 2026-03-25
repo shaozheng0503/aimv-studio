@@ -23,8 +23,11 @@ class LyriaAdapter(BaseModelAdapter):
             )
             resp.raise_for_status()
             data = resp.json()
+        audio_url = data.get("audio_url", "")
+        if not audio_url:
+            raise RuntimeError(f"Lyria returned no audio_url: {data}")
         return GenerateResult(
-            file_url=data.get("audio_url", ""),
+            file_url=audio_url,
             duration=data.get("duration"),
             metadata=data,
         )

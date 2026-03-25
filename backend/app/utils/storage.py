@@ -30,7 +30,12 @@ def ensure_bucket():
     client = get_minio_client()
     settings = get_settings()
     if not client.bucket_exists(settings.minio_bucket):
-        client.make_bucket(settings.minio_bucket)
+        try:
+            client.make_bucket(settings.minio_bucket)
+        except Exception:
+            # Concurrent worker may have already created it; verify it now exists
+            if not client.bucket_exists(settings.minio_bucket):
+                raise
     _bucket_ready = True
 
 

@@ -54,6 +54,15 @@ class VerifierAgent:
         system_prompt = VERIFY_PROMPT_IMAGE.format(prompt=prompt, character_desc=character_desc)
         return await self._call_llm_judge(system_prompt, image_url=image_url)
 
+    async def verify_music(self, audio_url: str, prompt: str) -> VerifyResult:
+        """Music cannot be verified via LLM vision — always passes with neutral score."""
+        return VerifyResult(
+            passed=True,
+            score=3.0,
+            explanation="Audio verification skipped (no audio LLM configured)",
+            dimensions={},
+        )
+
     async def verify_video(self, video_url: str, prompt: str, character_desc: str = "") -> VerifyResult:
         """Score a generated video clip using LLM vision."""
         system_prompt = VERIFY_PROMPT_VIDEO.format(prompt=prompt, character_desc=character_desc)
