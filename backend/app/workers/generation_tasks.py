@@ -422,28 +422,31 @@ def run_compose_phase(project_id: int, video_paths: list):
                 Media.type == "music",
             ).first()
 
-        if video_paths:
-            compose_task = Task(
-                project_id=project.id,
-                type="compose",
-                model_name="ffmpeg",
-                params={
-                    "video_paths": video_paths,
-                    "audio_path": audio_media.file_url if audio_media else "",
-                },
-            )
-            db.add(compose_task)
-            db.commit()
-            db.refresh(compose_task)
-            notify_progress(project_id, compose_task.id, "compose", "running", {
-                "clips": len(video_paths),
-                "has_audio": bool(audio_media),
-            })
-            run_generation_task(compose_task.id)
-        else:
-            notify_progress(project_id, 0, "pipeline", "warning", {
+        if not video_paths:
+            notify_progress(project_id, 0, "pipeline", "failed", {
                 "message": "No video clips were generated. Check individual task errors."
             })
+            project.status = "failed"
+            db.commit()
+            return
+
+        compose_task = Task(
+            project_id=project.id,
+            type="compose",
+            model_name="ffmpeg",
+            params={
+                "video_paths": video_paths,
+                "audio_path": audio_media.file_url if audio_media else "",
+            },
+        )
+        db.add(compose_task)
+        db.commit()
+        db.refresh(compose_task)
+        notify_progress(project_id, compose_task.id, "compose", "running", {
+            "clips": len(video_paths),
+            "has_audio": bool(audio_media),
+        })
+        run_generation_task(compose_task.id)
 
         notify_progress(project_id, 0, "pipeline", "completed", {
             "video_count": len(video_paths),
