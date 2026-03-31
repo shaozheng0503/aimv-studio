@@ -68,10 +68,16 @@ const platforms = computed(() => [
 ])
 
 onMounted(async () => {
-  const [pRes, mRes] = await Promise.all([
-    api.get(`/projects/${projectId}`),
-    api.get(`/projects/${projectId}/media`),
-  ])
+  let pRes, mRes
+  try {
+    ;[pRes, mRes] = await Promise.all([
+      api.get(`/projects/${projectId}`),
+      api.get(`/projects/${projectId}/media`),
+    ])
+  } catch {
+    ElMessage.error(t.value('loadError'))
+    return
+  }
   project.value = pRes.data
   mediaList.value = mRes.data
 
