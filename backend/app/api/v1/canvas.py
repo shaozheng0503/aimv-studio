@@ -253,7 +253,7 @@ async def generate_shot(
 
     # Build first_frame_image from prev_frames context if available
     prev_frames = req.canvas_context.get("prev_frames", [])
-    first_frame = prev_frames[0]["last_frame_url"] if prev_frames else ""
+    first_frame = prev_frames[0].get("last_frame_url", "") if prev_frames else ""
 
     # Enrich prompt with canvas context
     context_suffix = _build_context_suffix(req.canvas_context)
@@ -527,9 +527,10 @@ async def suggest_prompt(
     )
 
     try:
-        result = await _get_llm().chat([
-            {"role": "user", "content": f"{system_msg}\n\n{user_msg}"},
-        ])
+        result = await _get_llm().chat(
+            [{"role": "user", "content": user_msg}],
+            system=system_msg,
+        )
         return {"prompt": result.strip()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM error: {e}")

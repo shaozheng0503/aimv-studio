@@ -49,21 +49,26 @@ class LLMClient:
         self,
         messages: list[dict],
         stream: bool = False,
+        system: str | None = None,
     ) -> str | AsyncIterator[str]:
-        """Send chat messages to LLM. Returns full text or async stream of chunks."""
+        """Send chat messages to LLM. Returns full text or async stream of chunks.
+
+        system: override the default SYSTEM_PROMPT for this call only.
+        """
         if self.settings.openai_api_key:
             if stream:
-                return self._stream_openai(messages)
-            return await self._call_openai(messages)
+                return self._stream_openai(messages, system=system)
+            return await self._call_openai(messages, system=system)
         elif self.settings.gemini_api_key:
             if stream:
-                return self._stream_gemini(messages)
-            return await self._call_gemini(messages)
+                return self._stream_gemini(messages, system=system)
+            return await self._call_gemini(messages, system=system)
         else:
             return self._fallback_response(messages)
 
-    async def _call_openai(self, messages: list[dict]) -> str:
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    async def _call_openai(self, messages: list[dict], system: str | None = None) -> str:
+        sys = system or SYSTEM_PROMPT
+        full_messages = [{"role": "system", "content": sys}] + messages
         resp = await _get_http_client().post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
@@ -73,8 +78,9 @@ class LLMClient:
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
 
-    async def _stream_openai(self, messages: list[dict]) -> AsyncIterator[str]:
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    async def _stream_openai(self, messages: list[dict], system: str | None = None) -> AsyncIterator[str]:
+        sys = system or SYSTEM_PROMPT
+        full_messages = [{"role": "system", "content": sys}] + messages
         async with _get_http_client().stream(
             "POST",
             "https://api.openai.com/v1/chat/completions",
@@ -92,24 +98,26 @@ class LLMClient:
                     except (json.JSONDecodeError, KeyError, IndexError):
                         pass
 
-    async def _call_gemini(self, messages: list[dict]) -> str:
+    async def _call_gemini(self, messages: list[dict], system: str | None = None) -> str:
+        sys = system or SYSTEM_PROMPT
         contents = self._to_gemini_format(messages)
         resp = await _get_http_client().post(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
             params={"key": self.settings.gemini_api_key},
-            json={"system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]}, "contents": contents},
+            json={"system_instruction": {"parts": [{"text": sys}]}, "contents": contents},
             timeout=60,
         )
         resp.raise_for_status()
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-    async def _stream_gemini(self, messages: list[dict]) -> AsyncIterator[str]:
+    async def _stream_gemini(self, messages: list[dict], system: str | None = None) -> AsyncIterator[str]:
+        sys = system or SYSTEM_PROMPT
         contents = self._to_gemini_format(messages)
         async with _get_http_client().stream(
             "POST",
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
             params={"key": self.settings.gemini_api_key, "alt": "sse"},
-            json={"system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]}, "contents": contents},
+            json={"system_instruction": {"parts": [{"text": sys}]}, "contents": contents},
             timeout=120,
         ) as resp:
             async for line in resp.aiter_lines():

@@ -29,6 +29,7 @@ onMounted(async () => {
     const res = await api.get('/projects')
     projects.value = res.data
   } catch (e) {
+    ElMessage.error(t.value('loadError'))
     console.error(e)
   } finally {
     loading.value = false

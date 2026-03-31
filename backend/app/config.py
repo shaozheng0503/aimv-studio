@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     # Google Cloud service account (for gemini-image / imagen-3.0)
     google_sa_path: str = ".credentials/gcp-sa.json"
 
-    # Local model server base URLs
-    acestep_base_url: str = "https://deployment-452-c4zvjeiv-7860.550w.link"
+    # Local model server base URLs (override via env vars in production)
+    acestep_base_url: str = "http://localhost:7860"
     wan_video_base_url: str = "http://localhost:8188"
 
     # Local model paths
