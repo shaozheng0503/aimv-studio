@@ -50,13 +50,27 @@ def _run_async(coro):
         loop.close()
 
 
+def _sync_canvas_shot(db, task_id: int, task_type: str, task_params: dict, status: str, media_id=None) -> str | None:
+    """Sync a CanvasShot row when its video task completes or fails. Returns node_id."""
+    node_id = (task_params or {}).get("node_id")
+    if not node_id or task_type != "video":
+        return node_id
+    from app.models.canvas import CanvasShot
+    canvas_shot = db.query(CanvasShot).filter(CanvasShot.task_id == task_id).first()
+    if canvas_shot:
+        canvas_shot.status = status
+        if media_id is not None:
+            canvas_shot.media_id = media_id
+        db.commit()
+    return node_id
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=10)
 def run_generation_task(self, task_id: int):
     """Generic generation task dispatcher."""
     from app.models.project import Task, Media, Project
     from app.services.generation_service import GenerationService
     from app.core.character_bank import CharacterBank
-    from app.adapters.base import GenerateRequest
     from app.utils.progress import notify_progress
 
     db = _get_sync_session()
@@ -104,6 +118,7 @@ def run_generation_task(self, task_id: int):
         elif task.type == "compose":
             from app.services.compose_service import ComposeService
             from app.utils.storage import upload_file
+            from app.adapters.base import GenerateResult
             compose = ComposeService()
             video_paths = params.get("video_paths", [])
             audio_path = params.get("audio_path", "")
@@ -111,31 +126,19 @@ def run_generation_task(self, task_id: int):
             if not video_paths:
                 raise RuntimeError("Compose task requires at least one video path")
 
-            _fd_out, output_path = tempfile.mkstemp(suffix=".mp4", prefix=f"mv_{project.id}_")
-            os.close(_fd_out)
-            _fd_cat, concat_path = tempfile.mkstemp(suffix=".mp4", prefix=f"concat_{project.id}_")
-            os.close(_fd_cat)
+            with tempfile.TemporaryDirectory(prefix=f"compose_{project.id}_") as tmp_dir:
+                concat_path = os.path.join(tmp_dir, "concat.mp4")
+                compose.concat_videos(video_paths, concat_path)
 
-            compose.concat_videos(video_paths, concat_path)
-            if audio_path:
-                compose.merge_audio_video(concat_path, audio_path, output_path)
-            else:
-                output_path = concat_path
+                if audio_path:
+                    final_path = os.path.join(tmp_dir, "final.mp4")
+                    compose.merge_audio_video(concat_path, audio_path, final_path)
+                else:
+                    final_path = concat_path
 
-            final_path = output_path if os.path.exists(output_path) else concat_path
-            if os.path.exists(final_path):
                 notify_progress(project.id, task.id, "compose", "uploading")
                 minio_url = upload_file(final_path, "video/mp4")
-                for p in {output_path, concat_path}:
-                    try:
-                        if os.path.exists(p):
-                            os.unlink(p)
-                    except OSError:
-                        pass
-            else:
-                raise RuntimeError(f"Compose produced no output file (expected {final_path})")
 
-            from app.adapters.base import GenerateResult
             result = GenerateResult(file_url=minio_url, metadata={"composed": True, "segments": len(video_paths)})
 
         else:
@@ -157,16 +160,7 @@ def run_generation_task(self, task_id: int):
         db.commit()
         db.refresh(media)
 
-        # If this task was dispatched from a Canvas shot node, sync its status
-        node_id = (task.params or {}).get("node_id")
-        if node_id and task.type == "video":
-            from app.models.canvas import CanvasShot
-            canvas_shot = db.query(CanvasShot).filter(CanvasShot.task_id == task.id).first()
-            if canvas_shot:
-                canvas_shot.status = "done"
-                canvas_shot.media_id = media.id
-                db.commit()
-
+        node_id = _sync_canvas_shot(db, task.id, task.type, task.params, "done", media_id=media.id)
         notify_progress(project.id, task.id, task.type, "completed", {
             "file_url": result.file_url,
             "quality_score": result.metadata.get("quality_score"),
@@ -179,13 +173,7 @@ def run_generation_task(self, task_id: int):
             task.error_message = str(e)
             task.retry_count = (task.retry_count or 0) + 1
             db.commit()
-            node_id = (task.params or {}).get("node_id")
-            if node_id and task.type == "video":
-                from app.models.canvas import CanvasShot
-                canvas_shot = db.query(CanvasShot).filter(CanvasShot.task_id == task.id).first()
-                if canvas_shot:
-                    canvas_shot.status = "failed"
-                    db.commit()
+            node_id = _sync_canvas_shot(db, task.id, task.type, task.params, "failed")
             notify_progress(task.project_id, task.id, task.type, "failed", {
                 "error": str(e),
                 **({"node_id": node_id} if node_id else {}),
@@ -350,13 +338,9 @@ def run_video_phase(_phase1_results, project_id: int):
                 try:
                     run_generation_task(video_task.id)
                     break
-                except Exception as vid_err:
+                except Exception:
                     if _attempt < _max_vid_retries - 1:
                         time.sleep(5 * (_attempt + 1))
-                    else:
-                        notify_progress(project_id, video_task.id, "video", "failed", {
-                            "segment": i + 1, "error": str(vid_err)
-                        })
 
             db.refresh(video_task)
             if video_task.status == "completed":
@@ -368,6 +352,10 @@ def run_video_phase(_phase1_results, project_id: int):
                         if prev_last_frame:
                             frame_temp_files.append(prev_last_frame)
                         prev_last_frame = last_frame
+            else:
+                notify_progress(project_id, video_task.id, "video", "failed", {
+                    "segment": i + 1, "error": video_task.error_message or "Generation failed"
+                })
 
         if prev_last_frame:
             frame_temp_files.append(prev_last_frame)

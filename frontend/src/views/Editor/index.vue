@@ -68,18 +68,17 @@ const platforms = computed(() => [
 ])
 
 onMounted(async () => {
-  let pRes, mRes
   try {
-    ;[pRes, mRes] = await Promise.all([
+    const [pRes, mRes] = await Promise.all([
       api.get(`/projects/${projectId}`),
       api.get(`/projects/${projectId}/media`),
     ])
+    project.value = pRes.data
+    mediaList.value = mRes.data
   } catch {
     ElMessage.error(t.value('loadError'))
     return
   }
-  project.value = pRes.data
-  mediaList.value = mRes.data
 
   // Try to get canvas shot order so timeline matches canvas arrangement
   const canvasOrder: Record<number, number> = {}
