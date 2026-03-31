@@ -27,14 +27,15 @@ async def poll_until_done(
         try:
             done, url = await check_fn()
             errors = 0
-            if done:
-                if not url:
-                    raise RuntimeError("API reported completion but returned no output URL")
-                return url
         except Exception as e:
             errors += 1
             if errors >= 5:
                 raise RuntimeError(f"Polling failed after 5 consecutive errors: {e}") from e
+        else:
+            if done:
+                if not url:
+                    raise RuntimeError("API reported completion but returned no output URL")
+                return url
 
         await asyncio.sleep(interval)
         elapsed += interval
