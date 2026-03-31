@@ -11,6 +11,17 @@ import tempfile
 from pathlib import Path
 
 
+def _run_ffmpeg(cmd: list[str]) -> None:
+    """Run an ffmpeg command; raise RuntimeError with stderr on failure."""
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode(errors="replace").strip() if e.stderr else ""
+        raise RuntimeError(
+            f"ffmpeg failed (exit {e.returncode}): {stderr}"
+        ) from e
+
+
 class ComposeService:
 
     def concat_videos(self, video_paths: list[str], output_path: str) -> str:
@@ -40,14 +51,10 @@ class ComposeService:
 
             list_file = tmp_dir / "concat.txt"
             list_file.write_text("\n".join(f"file '{p}'" for p in resolved))
-            subprocess.run(
-                [
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(list_file), "-c", "copy", output_path,
-                ],
-                check=True,
-                capture_output=True,
-            )
+            _run_ffmpeg([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(list_file), "-c", "copy", output_path,
+            ])
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return output_path
@@ -67,21 +74,17 @@ class ComposeService:
             if normalize_lufs is not None
             else "anull"
         )
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-allowed_extensions", "ALL",
-                "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
-                "-i", video_path,
-                "-i", audio_path,
-                "-c:v", "copy",
-                "-af", audio_filter, "-c:a", "aac", "-b:a", "192k",
-                "-shortest",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-allowed_extensions", "ALL",
+            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+            "-i", video_path,
+            "-i", audio_path,
+            "-c:v", "copy",
+            "-af", audio_filter, "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            output_path,
+        ])
         return output_path
 
     def normalize_loudness(
@@ -92,16 +95,12 @@ class ComposeService:
         -14 LUFS is the target for most streaming platforms (Spotify, YouTube, Apple Music).
         -1.5 dBTP true-peak headroom prevents clipping after encoding.
         """
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", audio_path,
-                "-af", f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11",
-                "-c:a", "aac", "-b:a", "192k",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        _run_ffmpeg([
+            "ffmpeg", "-y", "-i", audio_path,
+            "-af", f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path,
+        ])
         return output_path
 
     def add_subtitles(self, video_path: str, srt_path: str, output_path: str) -> str:
@@ -112,39 +111,31 @@ class ComposeService:
         """
         # FFmpeg subtitles filter requires forward slashes and escaped colons
         safe_srt = srt_path.replace("\\", "/").replace(":", "\\:")
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", (
-                    f"subtitles={safe_srt}:"
-                    "force_style='FontName=Arial,FontSize=18,"
-                    "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1'"
-                ),
-                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-c:a", "copy",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", (
+                f"subtitles={safe_srt}:"
+                "force_style='FontName=Arial,FontSize=18,"
+                "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1'"
+            ),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:a", "copy",
+            output_path,
+        ])
         return output_path
 
     def add_watermark(self, video_path: str, text: str, output_path: str) -> str:
         """Add text watermark to bottom-right corner."""
         # Escape characters special to the FFmpeg drawtext filter parser
         safe_text = text.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"drawtext=text='{safe_text}':fontcolor=white@0.5:fontsize=14:x=w-tw-10:y=h-th-10",
-                "-c:a", "copy",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"drawtext=text='{safe_text}':fontcolor=white@0.5:fontsize=14:x=w-tw-10:y=h-th-10",
+            "-c:a", "copy",
+            output_path,
+        ])
         return output_path
 
     def export_for_platform(
@@ -163,22 +154,18 @@ class ComposeService:
         }
         preset = presets.get(platform, presets["bilibili"])
         w, h = preset["width"], preset["height"]
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-allowed_extensions", "ALL",
-                "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
-                "-i", video_path,
-                "-vf", (
-                    f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black"
-                ),
-                "-c:v", "libx264", "-preset", "fast", "-b:v", preset["bitrate"],
-                "-c:a", "aac", "-b:a", "128k",
-                "-movflags", "+faststart",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-allowed_extensions", "ALL",
+            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+            "-i", video_path,
+            "-vf", (
+                f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black"
+            ),
+            "-c:v", "libx264", "-preset", "fast", "-b:v", preset["bitrate"],
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            output_path,
+        ])
         return output_path

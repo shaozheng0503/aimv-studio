@@ -108,17 +108,19 @@ def run_generation_task(self, task_id: int):
             video_paths = params.get("video_paths", [])
             audio_path = params.get("audio_path", "")
 
+            if not video_paths:
+                raise RuntimeError("Compose task requires at least one video path")
+
             _fd_out, output_path = tempfile.mkstemp(suffix=".mp4", prefix=f"mv_{project.id}_")
             os.close(_fd_out)
             _fd_cat, concat_path = tempfile.mkstemp(suffix=".mp4", prefix=f"concat_{project.id}_")
             os.close(_fd_cat)
 
-            if video_paths:
-                compose.concat_videos(video_paths, concat_path)
-                if audio_path:
-                    compose.merge_audio_video(concat_path, audio_path, output_path)
-                else:
-                    output_path = concat_path
+            compose.concat_videos(video_paths, concat_path)
+            if audio_path:
+                compose.merge_audio_video(concat_path, audio_path, output_path)
+            else:
+                output_path = concat_path
 
             final_path = output_path if os.path.exists(output_path) else concat_path
             if os.path.exists(final_path):
