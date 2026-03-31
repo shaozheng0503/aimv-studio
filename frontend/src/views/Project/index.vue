@@ -42,6 +42,8 @@ async function createProject() {
   try {
     const res = await api.post('/projects', { title: t.value('projectUntitled') })
     router.push(`/canvas/${res.data.id}`)
+  } catch {
+    ElMessage.error(t.value('createError'))
   } finally {
     creating.value = false
   }

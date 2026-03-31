@@ -7,6 +7,8 @@ from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.models.project import Project, Task
 from app.schemas.project import TaskResponse
+from app.workers.generation_tasks import run_generation_task
+from app.core.model_router import ModelRouter
 
 router = APIRouter(prefix="/projects/{project_id}/generate", tags=["generate"])
 
@@ -40,8 +42,6 @@ async def _create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
-    # Dispatch to Celery
-    from app.workers.generation_tasks import run_generation_task
     run_generation_task.delay(task.id)
     return task
 
@@ -69,7 +69,6 @@ async def generate_video(
     # Model routing: use project style or user override
     model = req.model_override
     if not model:
-        from app.core.model_router import ModelRouter
         model = ModelRouter().route_video(
             style=project.visual_style or "",
             quality="high",
@@ -88,7 +87,6 @@ async def generate_music(
     project = await _get_project(project_id, user, db)
     model = req.model_override
     if not model:
-        from app.core.model_router import ModelRouter
         needs_vocal = req.params.get("needs_vocal", False)
         model = ModelRouter().route_music(
             needs_vocal=needs_vocal,
