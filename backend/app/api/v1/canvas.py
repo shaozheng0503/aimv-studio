@@ -7,12 +7,23 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.llm_client import LLMClient
 from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.models.project import Project, Task, Media
 from app.models.canvas import Canvas, CanvasShot
+from app.workers.generation_tasks import run_generation_task
 
 router = APIRouter(prefix="/projects/{project_id}/canvas", tags=["canvas"])
+
+_llm: LLMClient | None = None
+
+
+def _get_llm() -> LLMClient:
+    global _llm
+    if _llm is None:
+        _llm = LLMClient()
+    return _llm
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -277,7 +288,6 @@ async def generate_shot(
     await db.refresh(shot)
 
     # Dispatch to Celery worker
-    from app.workers.generation_tasks import run_generation_task
     run_generation_task.delay(task.id)
 
     return CanvasShotResponse.from_orm_with_media(shot)
@@ -303,7 +313,7 @@ async def generate_all_pending(
     if not pending:
         return {"dispatched": 0, "message": "No pending shots"}
 
-    dispatched_node_ids: list[str] = []
+    dispatched: list[CanvasShot] = []
     for shot in pending:
         if not shot.prompt:
             continue
@@ -324,17 +334,15 @@ async def generate_all_pending(
 
         shot.status = "generating"
         shot.task_id = task.id
-        dispatched_node_ids.append(shot.node_id)
+        dispatched.append(shot)
 
     await db.commit()
 
     # Dispatch all at once (parallel generation)
-    from app.workers.generation_tasks import run_generation_task
-    for shot in pending:
-        if shot.task_id:
-            run_generation_task.delay(shot.task_id)
+    for shot in dispatched:
+        run_generation_task.delay(shot.task_id)
 
-    return {"dispatched": len(dispatched_node_ids), "node_ids": dispatched_node_ids}
+    return {"dispatched": len(dispatched), "node_ids": [s.node_id for s in dispatched]}
 
 
 @router.get("/shots/{node_id}", response_model=CanvasShotResponse)
@@ -424,13 +432,12 @@ async def generate_music_node(
         },
     )
     db.add(task)
+    await db.flush()        # assigns task.id before expiry on commit
+    task_id = task.id
     await db.commit()
-    await db.refresh(task)
 
-    from app.workers.generation_tasks import run_generation_task
-    run_generation_task.delay(task.id)
-
-    return {"task_id": task.id, "node_id": req.node_id, "status": "pending"}
+    run_generation_task.delay(task_id)
+    return {"task_id": task_id, "node_id": req.node_id, "status": "pending"}
 
 
 @router.get("/music/{node_id}")
@@ -520,9 +527,7 @@ async def suggest_prompt(
     )
 
     try:
-        from app.core.llm_client import LLMClient
-        llm = LLMClient()
-        result = await llm.chat([
+        result = await _get_llm().chat([
             {"role": "user", "content": f"{system_msg}\n\n{user_msg}"},
         ])
         return {"prompt": result.strip()}

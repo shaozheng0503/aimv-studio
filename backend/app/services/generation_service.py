@@ -40,6 +40,7 @@ _MODEL_NAME_ALIASES: dict[str, str] = {
     "seedance2.0": "seedance",
     "wan 2.2": "wan2.2",
     "wan2.2": "wan2.2",
+    # Planned — adapters not yet implemented; will raise ValueError if selected
     "kling 2.0": "kling",
     "hailuo 2.0": "hailuo",
     "grok video 1.0": "grok",

@@ -188,19 +188,22 @@ async def chat(
     if req.stream:
         async def event_stream():
             full_text = ""
-            stream = await _get_llm().chat(_trim_for_llm(history), stream=True)
-            if isinstance(stream, str):
-                yield f"data: {json.dumps({'content': stream})}\n\n"
-                full_text = stream
-            else:
-                async for chunk in stream:
-                    full_text += chunk
-                    yield f"data: {json.dumps({'content': chunk})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
-
-            history.append({"role": "assistant", "content": full_text})
-            project.chat_history = history
-            await db.commit()
+            try:
+                stream = await _get_llm().chat(_trim_for_llm(history), stream=True)
+                if isinstance(stream, str):
+                    yield f"data: {json.dumps({'content': stream})}\n\n"
+                    full_text = stream
+                else:
+                    async for chunk in stream:
+                        full_text += chunk
+                        yield f"data: {json.dumps({'content': chunk})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            finally:
+                # Persist history even if client disconnects mid-stream
+                if full_text:
+                    history.append({"role": "assistant", "content": full_text})
+                    project.chat_history = history
+                    await db.commit()
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 

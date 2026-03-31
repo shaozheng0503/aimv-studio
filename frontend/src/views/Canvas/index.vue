@@ -131,7 +131,7 @@ const initialNodes = [
   {
     id: 's4', type: 'shot', position: { x: 970, y: 345 },
     data: {
-      index: 4, status: 'pending', duration: 7, model: 'Kling 2.0', timeAnchor: null,
+      index: 4, status: 'pending', duration: 7, model: 'Veo 3.1', timeAnchor: null,
       gradient: 'linear-gradient(135deg,#0f3460,#533483)', segment: null,
       prompt: '双人近景对视，情感高峰，虚化背景',
     },
@@ -208,7 +208,8 @@ async function saveProjectTitle() {
   }
 }
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-const pollingIntervals: Record<string, ReturnType<typeof setInterval>> = {}
+// Single timer registry for all polling, keyed as "shot:<nodeId>" or "music:<nodeId>"
+const _pollingTimers: Record<string, ReturnType<typeof setInterval>> = {}
 
 // ─── undo / redo ───────────────────────────────────────────────────────────
 const MAX_HISTORY = 30
@@ -273,8 +274,9 @@ function _patchNodeStatus(nodeId: string, status: string, videoUrl?: string | nu
 }
 
 function startPolling(nodeId: string) {
-  if (pollingIntervals[nodeId] || !projectId) return
-  pollingIntervals[nodeId] = setInterval(async () => {
+  const key = `shot:${nodeId}`
+  if (_pollingTimers[key] || !projectId) return
+  _pollingTimers[key] = setInterval(async () => {
     try {
       const { data } = await api.get(`/projects/${projectId}/canvas/shots/${nodeId}`)
       if (data.status === 'done' || data.status === 'failed') {
@@ -286,9 +288,10 @@ function startPolling(nodeId: string) {
 }
 
 function stopPolling(nodeId: string) {
-  if (pollingIntervals[nodeId]) {
-    clearInterval(pollingIntervals[nodeId])
-    delete pollingIntervals[nodeId]
+  const key = `shot:${nodeId}`
+  if (_pollingTimers[key]) {
+    clearInterval(_pollingTimers[key])
+    delete _pollingTimers[key]
   }
 }
 
@@ -373,7 +376,7 @@ async function generateShot(nodeId: string) {
   if (!node || !projectId) return
   const payload = generationPayload.value
 
-  _patchNodeStatus(nodeId, 'generating')
+  updateNodeData(nodeId, { status: 'generating' })
   try {
     await api.post(`/projects/${projectId}/canvas/shots/${nodeId}/generate`, {
       prompt: node.data.prompt ?? '',
@@ -400,7 +403,9 @@ function updateNodeData(nodeId: string, updates: Record<string, any>) {
   )
 }
 
-const VIDEO_MODELS = ['Veo 3.1', 'Seedance 2.0', 'Kling 2.0', 'Wan2.2', 'Hailuo 2.0']
+// Only list models that have a backend adapter implemented.
+// Kling 2.0 and Hailuo 2.0 are planned but not yet supported.
+const VIDEO_MODELS = ['Veo 3.1', 'Seedance 2.0', 'Wan2.2', 'Grok Video']
 
 function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
   const id = `${type}-${Date.now()}`
@@ -515,11 +520,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 // ─── Music generation (ACE-Step V1.5) ────────────────────────────────────
-const musicPollingIntervals: Record<string, ReturnType<typeof setInterval>> = {}
 
 function startMusicPolling(nodeId: string) {
-  if (musicPollingIntervals[nodeId] || !projectId) return
-  musicPollingIntervals[nodeId] = setInterval(async () => {
+  const key = `music:${nodeId}`
+  if (_pollingTimers[key] || !projectId) return
+  _pollingTimers[key] = setInterval(async () => {
     try {
       const { data } = await api.get(`/projects/${projectId}/canvas/music/${nodeId}`)
       if (data.status === 'completed') {
@@ -536,9 +541,10 @@ function startMusicPolling(nodeId: string) {
 }
 
 function stopMusicPolling(nodeId: string) {
-  if (musicPollingIntervals[nodeId]) {
-    clearInterval(musicPollingIntervals[nodeId])
-    delete musicPollingIntervals[nodeId]
+  const key = `music:${nodeId}`
+  if (_pollingTimers[key]) {
+    clearInterval(_pollingTimers[key])
+    delete _pollingTimers[key]
   }
 }
 
@@ -1055,8 +1061,7 @@ onUnmounted(() => {
   wsDestroyed = true
   if (playRAF) cancelAnimationFrame(playRAF)
   if (saveTimer) clearTimeout(saveTimer)
-  Object.keys(pollingIntervals).forEach(stopPolling)
-  Object.keys(musicPollingIntervals).forEach(stopMusicPolling)
+  Object.values(_pollingTimers).forEach(clearInterval)
   ws?.close()
   window.removeEventListener('keydown', onKeydown)
 })

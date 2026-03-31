@@ -29,7 +29,7 @@ async def poll_until_done(
             errors = 0
             if done:
                 if not url:
-                    raise RuntimeError("API reported completion but returned no video URL")
+                    raise RuntimeError("API reported completion but returned no output URL")
                 return url
         except Exception as e:
             errors += 1
