@@ -64,6 +64,10 @@ async def upload_audio(
         # Upload to object storage (sync MinIO client, offload to thread pool)
         content_type = file.content_type or "audio/mpeg"
         file_url = await asyncio.to_thread(upload_file, tmp_path, content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio upload failed: {e}") from e
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
@@ -129,6 +133,10 @@ async def upload_image(
         await _write_img(tmp_path)
         content_type = file.content_type or "image/jpeg"
         file_url = await asyncio.to_thread(upload_file, tmp_path, content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image upload failed: {e}") from e
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

@@ -33,9 +33,10 @@ async def start_pipeline(
         raise HTTPException(status_code=409, detail="Pipeline already running for this project.")
 
     from app.workers.generation_tasks import run_full_pipeline
-    run_full_pipeline.delay(project.id)
 
     project.status = "generating"
     await db.commit()
+
+    run_full_pipeline.delay(project.id)
 
     return {"status": "started", "project_id": project.id}
