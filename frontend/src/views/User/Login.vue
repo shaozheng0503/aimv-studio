@@ -9,7 +9,7 @@ const route = useRoute()
 const auth = useAuthStore()
 const { t } = useLangStore()
 const isRegister = ref(false)
-const form = ref({ username: '', email: '', password: '' })
+const form = ref({ username: 'demo', email: '', password: 'demo123' })
 const error = ref('')
 
 async function submit() {
@@ -27,15 +27,6 @@ async function submit() {
   }
 }
 
-async function demoLogin() {
-  error.value = ''
-  try {
-    await auth.login('demo', 'demo123')
-    router.push((route.query.redirect as string) || '/projects')
-  } catch (e: any) {
-    error.value = e.response?.data?.detail || t('loginError')
-  }
-}
 </script>
 
 <template>
@@ -60,12 +51,6 @@ async function demoLogin() {
         {{ isRegister ? t('registerBtn') : t('loginBtn') }}
       </button>
 
-      <div v-if="!isRegister" class="demo-divider">
-        <span>或</span>
-      </div>
-      <button v-if="!isRegister" class="btn-demo full-width" @click="demoLogin">
-        🎬 Demo 一键体验
-      </button>
 
       <p class="toggle-text">
         {{ isRegister ? t('toLogin') : t('toRegister') }}

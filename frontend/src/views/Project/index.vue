@@ -108,6 +108,7 @@ async function togglePublish(p: any, event: Event) {
         <router-link to="/" class="logo-text">AIMV</router-link>
       </div>
       <h1>{{ t('myProjects') }}</h1>
+      <button class="btn-ghost" style="margin-right:4px" @click="router.push('/studio')">{{ t('simpleStudio') }}</button>
       <button class="btn-primary" :disabled="creating" @click="createProject">{{ t('newProject') }}</button>
     </header>
 
@@ -152,6 +153,7 @@ async function togglePublish(p: any, event: Event) {
             <span class="meta-date">{{ new Date(p.created_at).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US') }}</span>
           </div>
           <div class="project-actions">
+            <button class="btn-ghost btn-xs btn-studio" @click.stop="router.push(`/studio/${p.id}`)">{{ t('simpleStudio') }}</button>
             <button class="btn-ghost btn-xs btn-canvas" @click.stop="router.push(`/canvas/${p.id}`)">Canvas</button>
             <button v-if="p.status === 'done'" class="btn-ghost btn-xs" @click.stop="router.push(`/editor/${p.id}`)">{{ t('export') }}</button>
             <button
@@ -208,6 +210,7 @@ async function togglePublish(p: any, event: Event) {
 .btn-xs { padding: 4px 10px; font-size: 11px; }
 .btn-danger { color: var(--error, #f87171) !important; }
 .btn-canvas { color: #22d3ee !important; }
+.btn-studio { color: #a78bfa !important; }
 .btn-publish { color: var(--accent, #a78bfa) !important; }
 .btn-published { color: #34d399 !important; }
 .empty, .loading { text-align: center; padding: 80px; color: var(--text-muted); }

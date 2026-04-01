@@ -183,6 +183,23 @@ const messages = {
     platformXhs: '小红书 3:4',
     platformInstagram: 'Instagram Reels',
     platformOriginal: '原始画质',
+
+    // Studio (simplified creation)
+    simpleStudio: '简易创作',
+    studioHint: '描述你的 MV 想法，AI 帮你完成所有创作',
+    studioPlaceholder: '例如：帮我做一个关于失恋的MV，风格偏暗黑，节奏偏慢...',
+    studioLaunch: '一键生成 MV',
+    studioLaunching: '规划中...',
+    studioGenerating: 'AI 正在创作你的 MV...',
+    studioMvReady: '你的 MV 已完成！',
+    studioEditCanvas: '在画布中编辑',
+    studioExport: '导出 MV',
+    studioRetry: '重新生成',
+    studioMusicGen: '音乐生成',
+    studioShotSeq: '镜头序列',
+    studioOverallProgress: '整体进度',
+    studioPlanningMV: 'AI 正在规划你的 MV...',
+    studioSendMsg: '发送',
   },
   en: {
     appName: 'AIMV Studio',
@@ -350,6 +367,23 @@ const messages = {
     platformXhs: 'Xiaohongshu 3:4',
     platformInstagram: 'Instagram Reels',
     platformOriginal: 'Original',
+
+    // Studio (simplified creation)
+    simpleStudio: 'Simple Studio',
+    studioHint: 'Describe your MV idea — AI handles the rest',
+    studioPlaceholder: 'e.g. Make me a dark, slow-paced MV about heartbreak...',
+    studioLaunch: 'Generate MV',
+    studioLaunching: 'Planning...',
+    studioGenerating: 'AI is creating your MV...',
+    studioMvReady: 'Your MV is ready!',
+    studioEditCanvas: 'Edit in Canvas',
+    studioExport: 'Export MV',
+    studioRetry: 'Regenerate',
+    studioMusicGen: 'Music Generation',
+    studioShotSeq: 'Shot Sequence',
+    studioOverallProgress: 'Overall Progress',
+    studioPlanningMV: 'AI is planning your MV...',
+    studioSendMsg: 'Send',
   },
 } as const
 

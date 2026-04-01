@@ -569,8 +569,30 @@ async function generateMusic(nodeId: string) {
   }
 }
 
-// ─── AI prompt suggest ────────────────────────────────────────────────────
+// ─── AI prompt suggest & optimize ────────────────────────────────────────
 const suggestingPrompt = ref(false)
+const optimizingField = ref<string | null>(null)
+
+async function optimizePrompt(
+  fieldKey: string,
+  type: string,
+  currentValue: string,
+  updateKey: string,
+) {
+  if (!selectedNodeId.value || !projectId || !currentValue.trim()) return
+  optimizingField.value = fieldKey
+  try {
+    const { data } = await api.post(`/projects/${projectId}/canvas/optimize-prompt`, {
+      prompt: currentValue,
+      type,
+    })
+    updateNodeData(selectedNodeId.value, { [updateKey]: data.prompt })
+  } catch {
+    ElMessage.error('提示词优化失败，请稍后重试')
+  } finally {
+    optimizingField.value = null
+  }
+}
 
 async function suggestPrompt() {
   if (!selectedNodeId.value || !projectId) return
@@ -1186,6 +1208,15 @@ onUnmounted(() => {
                 <span v-if="suggestingPrompt">生成中…</span>
                 <span v-else>✨ AI 生成</span>
               </button>
+              <button
+                class="btn-optimize"
+                :disabled="optimizingField === 'shot_prompt'"
+                @click="optimizePrompt('shot_prompt', 'video', (selectedNode.data.prompt as string) ?? '', 'prompt')"
+                title="优化 Prompt"
+              >
+                <span v-if="optimizingField === 'shot_prompt'">优化中…</span>
+                <span v-else>✦ 优化</span>
+              </button>
             </div>
             <textarea
               class="panel-input"
@@ -1390,7 +1421,18 @@ onUnmounted(() => {
               <span>&#x1F3B6; ACE-Step &#x97F3;&#x4E50;&#x751F;&#x6210;</span>
             </div>
             <div class="panel-section" style="padding:0;margin-top:8px">
-              <label>&#x97F3;&#x4E50;&#x63CF;&#x8FF0;</label>
+              <div class="prompt-label-row">
+                <label>&#x97F3;&#x4E50;&#x63CF;&#x8FF0;</label>
+                <button
+                  class="btn-optimize"
+                  :disabled="optimizingField === 'song_desc'"
+                  @click="optimizePrompt('song_desc', 'music_desc', (selectedNode.data.description as string) ?? '', 'description')"
+                  title="优化音乐描述"
+                >
+                  <span v-if="optimizingField === 'song_desc'">优化中…</span>
+                  <span v-else>✦ 优化</span>
+                </button>
+              </div>
               <textarea
                 class="panel-input"
                 rows="3"
@@ -1400,7 +1442,18 @@ onUnmounted(() => {
               />
             </div>
             <div class="panel-section" style="padding:0;margin-top:8px">
-              <label>&#x6B4C;&#x8BCD; (&#x53EF;&#x9009;)</label>
+              <div class="prompt-label-row">
+                <label>&#x6B4C;&#x8BCD; (&#x53EF;&#x9009;)</label>
+                <button
+                  class="btn-optimize"
+                  :disabled="optimizingField === 'song_lyrics'"
+                  @click="optimizePrompt('song_lyrics', 'music_lyrics', (selectedNode.data.lyrics as string) ?? '', 'lyrics')"
+                  title="优化歌词"
+                >
+                  <span v-if="optimizingField === 'song_lyrics'">优化中…</span>
+                  <span v-else>✦ 优化</span>
+                </button>
+              </div>
               <textarea
                 class="panel-input"
                 rows="4"
@@ -1473,7 +1526,18 @@ onUnmounted(() => {
               @input="updateNodeData(selectedNodeId!, { name: ($event.target as HTMLInputElement).value })" />
           </div>
           <div class="panel-section">
-            <label>&#x63CF;&#x8FF0;</label>
+            <div class="prompt-label-row">
+              <label>&#x63CF;&#x8FF0;</label>
+              <button
+                class="btn-optimize"
+                :disabled="optimizingField === 'char_desc'"
+                @click="optimizePrompt('char_desc', 'character', (selectedNode.data.description as string) ?? '', 'description')"
+                title="优化角色描述"
+              >
+                <span v-if="optimizingField === 'char_desc'">优化中…</span>
+                <span v-else>✦ 优化</span>
+              </button>
+            </div>
             <textarea class="panel-input" rows="2" :value="(selectedNode.data.description as string)"
               @input="updateNodeData(selectedNodeId!, { description: ($event.target as HTMLTextAreaElement).value })" />
           </div>
@@ -2226,6 +2290,14 @@ label {
 }
 .btn-ai-suggest:disabled { opacity: .4; cursor: not-allowed; }
 .btn-ai-suggest:not(:disabled):hover { background: rgba(243,178,255,.2); border-color: rgba(243,178,255,.6); }
+.btn-optimize {
+  padding: 2px 10px; font-size: .72rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(141,92,255,.35); color: #a78bfa;
+  background: rgba(141,92,255,.08); font-weight: 600; white-space: nowrap;
+  transition: all .15s;
+}
+.btn-optimize:disabled { opacity: .4; cursor: not-allowed; }
+.btn-optimize:not(:disabled):hover { background: rgba(141,92,255,.2); border-color: rgba(141,92,255,.6); }
 
 /* canvas template section in guide */
 .guide-tpl-section {

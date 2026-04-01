@@ -24,7 +24,7 @@ def _qwen_llm() -> LLM | None:
         base_url=f"{s.qwen_base_url.rstrip('/')}/v1",
         api_key="dummy",
         temperature=0.7,
-        max_tokens=2000,
+        max_tokens=8192,
     )
 
 
@@ -126,44 +126,38 @@ Align segments with the music sections provided in the analysis.""",
         description="""Based on the screenwriter's storyboard and character bank, create visual
 generation prompts for each segment.
 
-For each storyboard segment, output:
+For each storyboard segment, output an object with these fields:
+- segment_id (copy from the storyboard segment, e.g. "seg_001")
 - image_prompt (English, detailed, optimized for AI image generation)
 - video_prompt (English, includes motion and duration)
 - camera_direction (subject, action, camera_movement, composition, lighting)
 - model_recommendation (seedance/veo/grok/wan2.2)
 
-Use frame-chaining: note that each shot's last frame will be the next shot's first frame.
+Use frame-chaining: each shot's last frame is the next shot's first frame.
 Include the character descriptions from the character bank in every prompt.
 
-Output as a JSON array of shot objects.""",
-        expected_output="JSON array of shot objects with prompts and camera directions",
+Output ONLY a JSON array of shot objects (no wrapper dict).""",
+        expected_output="JSON array of shot objects with segment_id, prompts, and camera directions",
         agent=director,
         context=[task_screenwrite],
     )
 
     task_music = Task(
-        description=f"""Based on the storyboard and visual direction plan, produce the COMPLETE
-integrated production plan as a single JSON object. This is the final output that drives
-the entire generation pipeline.
+        description="""Based on the storyboard and visual direction plan, design the music for this MV.
 
-{context_block}
-
-Output ONE JSON object with ALL four top-level keys:
-- "character_bank": dict of character profiles from the Screenwriter (copy verbatim)
-- "storyboard": list of segments — merge the Screenwriter's storyboard with the Director's
-  shot objects so each segment has: segment_id, label, start_time, end_time, description,
-  mood, characters, image_prompt, video_prompt, camera_direction, model_recommendation
-- "music_plan": {{
-    "music_prompt": "<detailed prompt>",
-    "model_recommendation": "acestep" | "suno" | "lyria",
+Output ONLY the following JSON object (do NOT repeat the storyboard or character bank):
+{
+  "music_plan": {
+    "music_prompt": "<detailed English prompt describing the full track>",
+    "model_recommendation": "acestep",
     "needs_vocal": true/false,
-    "structure_map": [...],
-    "sync_points": [{{time, event}}]
-  }}
-- "music_analysis": pass through the music analysis data unchanged (bpm, duration, sections, etc.)
-
-All four keys must be present. Do not omit any.""",
-        expected_output="Single JSON object with character_bank, storyboard, music_plan, and music_analysis",
+    "structure_map": [
+      {"section": "<name>", "start_time": 0.0, "end_time": 30.0, "description": "..."}
+    ],
+    "sync_points": [{"time": 0.0, "event": "<visual event to sync>"}]
+  }
+}""",
+        expected_output="JSON object with music_plan key only",
         agent=music_producer,
         context=[task_screenwrite, task_direct],
     )

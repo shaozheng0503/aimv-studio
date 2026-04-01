@@ -39,6 +39,12 @@ const router = createRouter({
       component: () => import('@/views/Gallery/index.vue'),
     },
     {
+      path: '/studio/:id?',
+      name: 'studio',
+      component: () => import('@/views/Studio/index.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/views/User/Login.vue'),
@@ -54,6 +60,7 @@ const pageTitles: Record<string, string> = {
   editor: 'Editor — AIMV Studio',
   gallery: 'Gallery — AIMV Studio',
   login: 'Sign In — AIMV Studio',
+  studio: 'Simple Studio — AIMV Studio',
 }
 
 router.beforeEach((to) => {

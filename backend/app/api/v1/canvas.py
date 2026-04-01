@@ -488,6 +488,11 @@ class PromptSuggestRequest(BaseModel):
     existing_prompt: str = ""   # current prompt (may be empty)
 
 
+class PromptOptimizeRequest(BaseModel):
+    prompt: str
+    type: str = "video"  # video | music_desc | music_lyrics | character | scene
+
+
 @router.post("/prompt-suggest")
 async def suggest_prompt(
     project_id: int,
@@ -525,6 +530,58 @@ async def suggest_prompt(
         f"上下文信息:\n{context_str}{existing}\n\n"
         "请直接输出 prompt，不要添加任何解释、前缀或引号。"
     )
+
+    try:
+        result = await _get_llm().chat(
+            [{"role": "user", "content": user_msg}],
+            system=system_msg,
+        )
+        return {"prompt": result.strip()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
+
+
+_OPTIMIZE_PROMPTS: dict[str, tuple[str, str]] = {
+    "video": (
+        "你是专业 AI 视频生成提示词专家。将用户输入优化为高质量的英文 video prompt。"
+        "要求：纯英文，60词以内，包含主体、动作、镜头语言、光线、氛围，去掉冗余词。直接输出优化后的 prompt，不加任何解释。",
+        "请优化以下视频提示词：\n{prompt}",
+    ),
+    "music_desc": (
+        "你是专业 AI 音乐生成提示词专家。将用户输入优化为高质量的音乐风格描述，适合 ACEStep/Suno 等模型。"
+        "要求：中英文均可，50词以内，包含曲风、乐器、情绪、节奏特征，去掉冗余词。直接输出优化后的描述，不加任何解释。",
+        "请优化以下音乐描述提示词：\n{prompt}",
+    ),
+    "music_lyrics": (
+        "你是专业词作人。将用户输入的歌词草稿优化为更有韵律感和画面感的歌词。"
+        "保持原有语言（中文/英文），保留原意，增强韵脚和意象。直接输出优化后的歌词，不加任何解释。",
+        "请优化以下歌词：\n{prompt}",
+    ),
+    "character": (
+        "你是专业角色设计师。将用户输入优化为清晰的角色视觉描述，适合 AI 图像生成。"
+        "要求：中英文均可，40词以内，包含外貌、服装、气质特征。直接输出优化后的描述，不加任何解释。",
+        "请优化以下角色描述：\n{prompt}",
+    ),
+    "scene": (
+        "你是专业场景设计师。将用户输入优化为清晰的场景视觉描述，适合 AI 图像/视频生成。"
+        "要求：中英文均可，40词以内，包含地点、光线、氛围、视觉风格。直接输出优化后的描述，不加任何解释。",
+        "请优化以下场景描述：\n{prompt}",
+    ),
+}
+
+
+@router.post("/optimize-prompt")
+async def optimize_prompt(
+    project_id: int,
+    req: PromptOptimizeRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use LLM to optimize a user-written prompt for the given node type."""
+    await _get_project(project_id, user, db)
+
+    system_msg, user_tpl = _OPTIMIZE_PROMPTS.get(req.type, _OPTIMIZE_PROMPTS["video"])
+    user_msg = user_tpl.format(prompt=req.prompt)
 
     try:
         result = await _get_llm().chat(
