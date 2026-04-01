@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     suno_api_key: str = ""
     lyria_api_key: str = ""
     seedance_api_key: str = ""
+    seedance_base_url: str = "http://localhost:8033"  # XiaoYunQue bridge service
     veo_api_key: str = ""
     grok_video_api_key: str = ""
     z_image_api_key: str = ""

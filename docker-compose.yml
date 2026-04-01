@@ -70,6 +70,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
+      SEEDANCE_BASE_URL: http://xiaoyunque:8033
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,6 +95,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
+      SEEDANCE_BASE_URL: http://xiaoyunque:8033
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,6 +107,16 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+
+  xiaoyunque:
+    build: ./xiaoyunque          # clone https://github.com/XiakeMan777/seedance2.0_XYQ_APi here
+    ports:
+      - "8033:8033"
+    volumes:
+      - ./cookies:/app/cookies   # put Jianying cookie JSON files here
+      - xiaoyunque-db:/app/data
+      - xiaoyunque-dl:/app/downloads
+    restart: unless-stopped
 
   frontend:
     image: node:22-alpine
@@ -122,3 +134,5 @@ services:
 volumes:
   pgdata:
   miniodata:
+  xiaoyunque-db:
+  xiaoyunque-dl:
