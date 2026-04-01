@@ -209,16 +209,3 @@ class GenerationService:
 
         return best_result or result
 
-    @staticmethod
-    def extract_last_frame(video_url: str, output_path: str) -> str:
-        """Extract the last frame of a video for frame-chaining continuity.
-
-        Uses FFmpeg to grab the final frame, which becomes the first-frame
-        reference for the next shot. Supports HTTP(S) URLs (e.g. MinIO).
-        """
-        from app.core.shot_router import ShotRouter
-        result = ShotRouter.extract_last_frame(video_url)
-        if result and result != output_path:
-            import shutil
-            shutil.move(result, output_path)
-        return output_path if result else ""

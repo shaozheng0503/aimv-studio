@@ -1,12 +1,30 @@
-"""Unified LLM client — supports OpenAI-compatible and Gemini APIs with streaming."""
+"""Unified LLM client — supports OpenAI-compatible and Gemini APIs with streaming.
+
+Backend priority:
+  chat / stream      : Qwen  >  OpenAI  >  Gemini  >  fallback
+  chat_with_tools    : Qwen-reasoning  >  Qwen  >  OpenAI  >  Gemini
+
+Qwen and OpenAI both speak the OpenAI-compatible wire format, so they share a
+single set of _call_compat / _stream_compat / _call_compat_tools helpers.
+Only the base URL, auth headers, model name, and extra-body params differ.
+"""
 
 import httpx
 import json
+import os
+import re
 from typing import AsyncIterator
 from app.config import get_settings
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from model output (no-op for non-thinking models)."""
+    return _THINK_RE.sub("", text).strip()
+
+
 # Module-level shared client — connection pool is reused across all LLM calls.
-# Timeout is passed per-request so individual calls can override it.
 _http_client: httpx.AsyncClient | None = None
 
 
@@ -22,6 +40,7 @@ async def close_http_client() -> None:
     if _http_client is not None:
         await _http_client.aclose()
         _http_client = None
+
 
 SYSTEM_PROMPT = """你是 AIMV 的 AI 导演，帮助用户规划和创作专业音乐视频。
 
@@ -45,66 +64,218 @@ class LLMClient:
     def __init__(self):
         self.settings = get_settings()
 
+    # ── backend capability checks ─────────────────────────────────────────────
+
+    def _has_compat(self) -> bool:
+        """True when an OpenAI-compatible backend (Qwen or OpenAI) is available."""
+        return bool(self.settings.qwen_base_url or self.settings.openai_api_key)
+
+    def _has_gemini(self) -> bool:
+        s = self.settings
+        return bool(
+            s.gemini_api_key
+            or (s.google_sa_path and os.path.isfile(s.google_sa_path))
+        )
+
+    def _compat_params(self, reasoning: bool = False) -> tuple[str, str, dict, dict]:
+        """Return (base_url, model, headers, extra_body) for the active OpenAI-compatible backend.
+
+        When reasoning=True and a reasoning endpoint is configured, it is preferred
+        (used for tool calls where structured output quality matters most).
+        """
+        s = self.settings
+        if reasoning and s.qwen_reasoning_base_url:
+            return s.qwen_reasoning_base_url, s.qwen_reasoning_model, {}, {}
+        if s.qwen_base_url:
+            # Disable Qwen3 chain-of-thought — reasoning goes to its own `reasoning` field
+            return s.qwen_base_url, s.qwen_model, {}, {"chat_template_kwargs": {"enable_thinking": False}}
+        # OpenAI
+        return (
+            "https://api.openai.com",
+            "gpt-4o",
+            {"Authorization": f"Bearer {s.openai_api_key}"},
+            {},
+        )
+
+    # ── public API ────────────────────────────────────────────────────────────
+
     async def chat(
         self,
         messages: list[dict],
         stream: bool = False,
         system: str | None = None,
     ) -> str | AsyncIterator[str]:
-        """Send chat messages to LLM. Returns full text or async stream of chunks.
-
-        system: override the default SYSTEM_PROMPT for this call only.
-        """
-        if self.settings.openai_api_key:
+        """Send chat messages to LLM. Returns full text or async stream of chunks."""
+        if self._has_compat():
             if stream:
-                return self._stream_openai(messages, system=system)
-            return await self._call_openai(messages, system=system)
-        elif self.settings.gemini_api_key:
+                return self._stream_compat(messages, system=system)
+            return await self._call_compat(messages, system=system)
+        if self._has_gemini():
             if stream:
                 return self._stream_gemini(messages, system=system)
             return await self._call_gemini(messages, system=system)
-        else:
-            return self._fallback_response(messages)
+        return self._fallback_response(messages)
 
-    async def _call_openai(self, messages: list[dict], system: str | None = None) -> str:
+    async def chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> tuple[dict | None, str]:
+        """Call LLM with tool definitions for intent extraction.
+
+        Returns (intent_dict, response_text).
+        Returns (None, "") on failure so callers can fall back to plain chat.
+        """
+        if not tools:
+            return None, ""
+        try:
+            if self._has_compat():
+                reasoning = bool(self.settings.qwen_reasoning_base_url)
+                return await self._call_compat_tools(messages, tools, reasoning=reasoning)
+            if self._has_gemini():
+                return await self._call_gemini_tools(messages, tools)
+        except Exception:
+            pass
+        return None, ""
+
+    # ── OpenAI-compatible backend (Qwen + OpenAI) ────────────────────────────
+
+    async def _call_compat(
+        self,
+        messages: list[dict],
+        system: str | None = None,
+        reasoning: bool = False,
+    ) -> str:
+        base, model, headers, extra = self._compat_params(reasoning)
+        # Reasoning model has a 4096-token context window; cap output accordingly
+        max_tokens = 800 if (reasoning and self.settings.qwen_reasoning_base_url) else 2000
         sys = system or SYSTEM_PROMPT
-        full_messages = [{"role": "system", "content": sys}] + messages
+        body = {
+            "model": model,
+            "messages": [{"role": "system", "content": sys}] + messages,
+            "max_tokens": max_tokens,
+            **extra,
+        }
         resp = await _get_http_client().post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-            json={"model": "gpt-4o", "messages": full_messages, "max_tokens": 2000},
+            f"{base.rstrip('/')}/v1/chat/completions",
+            headers=headers,
+            json=body,
             timeout=60,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        return _strip_think(resp.json()["choices"][0]["message"]["content"])
 
-    async def _stream_openai(self, messages: list[dict], system: str | None = None) -> AsyncIterator[str]:
+    async def _stream_compat(
+        self,
+        messages: list[dict],
+        system: str | None = None,
+        reasoning: bool = False,
+    ) -> AsyncIterator[str]:
+        base, model, headers, extra = self._compat_params(reasoning)
         sys = system or SYSTEM_PROMPT
-        full_messages = [{"role": "system", "content": sys}] + messages
+        body = {
+            "model": model,
+            "messages": [{"role": "system", "content": sys}] + messages,
+            "max_tokens": 2000,
+            "stream": True,
+            **extra,
+        }
+        in_think = False
         async with _get_http_client().stream(
             "POST",
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-            json={"model": "gpt-4o", "messages": full_messages, "max_tokens": 2000, "stream": True},
+            f"{base.rstrip('/')}/v1/chat/completions",
+            headers=headers,
+            json=body,
             timeout=120,
         ) as resp:
+            buffer = ""
             async for line in resp.aiter_lines():
                 if line.startswith("data: ") and line != "data: [DONE]":
                     try:
                         chunk = json.loads(line[6:])
-                        delta = chunk["choices"][0].get("delta", {}).get("content", "")
-                        if delta:
-                            yield delta
+                        delta = chunk["choices"][0].get("delta", {}).get("content", "") or ""
+                        if not delta:
+                            continue
+                        buffer += delta
+                        # Strip <think>...</think> blocks on-the-fly (state machine)
+                        while True:
+                            if in_think:
+                                end = buffer.find("</think>")
+                                if end == -1:
+                                    buffer = ""
+                                    break
+                                buffer = buffer[end + 8:]
+                                in_think = False
+                            else:
+                                start = buffer.find("<think>")
+                                if start == -1:
+                                    yield buffer
+                                    buffer = ""
+                                    break
+                                if start > 0:
+                                    yield buffer[:start]
+                                buffer = buffer[start + 7:]
+                                in_think = True
                     except (json.JSONDecodeError, KeyError, IndexError):
                         pass
 
+    async def _call_compat_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        reasoning: bool = False,
+    ) -> tuple[dict | None, str]:
+        base, model, headers, extra = self._compat_params(reasoning)
+        max_tokens = 600 if (reasoning and self.settings.qwen_reasoning_base_url) else 1000
+        body = {
+            "model": model,
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "max_tokens": max_tokens,
+            **extra,
+        }
+        resp = await _get_http_client().post(
+            f"{base.rstrip('/')}/v1/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        message = resp.json().get("choices", [{}])[0].get("message", {})
+        content = _strip_think(message.get("content") or "")
+        intent = None
+        if message.get("tool_calls"):
+            args_str = message["tool_calls"][0].get("function", {}).get("arguments", "{}")
+            try:
+                intent = json.loads(args_str)
+            except json.JSONDecodeError:
+                pass
+        return intent, content
+
+    # ── Gemini backend ────────────────────────────────────────────────────────
+
+    def _gemini_auth(self) -> tuple[dict, dict]:
+        """Return (headers, params) for Gemini API auth.
+
+        Prefers gemini_api_key; falls back to SA Bearer token.
+        """
+        if self.settings.gemini_api_key:
+            return {}, {"key": self.settings.gemini_api_key}
+        if self.settings.google_sa_path:
+            from app.adapters.google_image import _get_access_token
+            token, _ = _get_access_token(self.settings.google_sa_path)
+            return {"Authorization": f"Bearer {token}"}, {}
+        return {}, {}
+
     async def _call_gemini(self, messages: list[dict], system: str | None = None) -> str:
         sys = system or SYSTEM_PROMPT
-        contents = self._to_gemini_format(messages)
+        headers, params = self._gemini_auth()
         resp = await _get_http_client().post(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-            params={"key": self.settings.gemini_api_key},
-            json={"system_instruction": {"parts": [{"text": sys}]}, "contents": contents},
+            headers=headers,
+            params=params,
+            json={"system_instruction": {"parts": [{"text": sys}]}, "contents": self._to_gemini_format(messages)},
             timeout=60,
         )
         resp.raise_for_status()
@@ -112,12 +283,13 @@ class LLMClient:
 
     async def _stream_gemini(self, messages: list[dict], system: str | None = None) -> AsyncIterator[str]:
         sys = system or SYSTEM_PROMPT
-        contents = self._to_gemini_format(messages)
+        headers, params = self._gemini_auth()
         async with _get_http_client().stream(
             "POST",
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
-            params={"key": self.settings.gemini_api_key, "alt": "sse"},
-            json={"system_instruction": {"parts": [{"text": sys}]}, "contents": contents},
+            headers=headers,
+            params={**params, "alt": "sse"},
+            json={"system_instruction": {"parts": [{"text": sys}]}, "contents": self._to_gemini_format(messages)},
             timeout=120,
         ) as resp:
             async for line in resp.aiter_lines():
@@ -131,93 +303,39 @@ class LLMClient:
                         pass
 
     def _to_gemini_format(self, messages: list[dict]) -> list[dict]:
-        contents = []
-        for msg in messages:
-            role = "model" if msg["role"] == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
-        return contents
-
-    async def chat_with_tools(
-        self,
-        messages: list[dict],
-        tools: list[dict],
-    ) -> tuple[dict | None, str]:
-        """Call LLM with tool definitions.
-
-        Returns (intent_dict, response_text). Both can be non-empty when the LLM
-        provides a text reply AND calls a tool in the same turn.
-        If intent extraction fails, returns (None, "") so the caller can fall back
-        to a regular llm.chat() call.
-        """
-        if not tools:
-            return None, ""
-        try:
-            if self.settings.openai_api_key:
-                return await self._call_openai_tools(messages, tools)
-            elif self.settings.gemini_api_key:
-                return await self._call_gemini_tools(messages, tools)
-        except Exception:
-            pass
-        return None, ""
-
-    async def _call_openai_tools(
-        self, messages: list[dict], tools: list[dict]
-    ) -> tuple[dict | None, str]:
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-        resp = await _get_http_client().post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
-            json={
-                "model": "gpt-4o",
-                "messages": full_messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "max_tokens": 1000,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        choice = data.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        content = message.get("content") or ""
-        tool_calls = message.get("tool_calls", [])
-        intent = None
-        if tool_calls:
-            args_str = tool_calls[0].get("function", {}).get("arguments", "{}")
-            try:
-                intent = json.loads(args_str)
-            except json.JSONDecodeError:
-                pass
-        return intent, content
+        return [
+            {"role": "model" if m["role"] == "assistant" else "user",
+             "parts": [{"text": m["content"]}]}
+            for m in messages
+        ]
 
     async def _call_gemini_tools(
         self, messages: list[dict], tools: list[dict]
     ) -> tuple[dict | None, str]:
-        """Gemini function calling — convert OpenAI tool schema to Gemini format."""
-        contents = self._to_gemini_format(messages)
-        fn_decls = []
-        for t in tools:
-            fn = t.get("function", {})
-            fn_decls.append({
-                "name": fn.get("name"),
-                "description": fn.get("description", ""),
-                "parameters": fn.get("parameters", {}),
-            })
+        """Gemini function calling — converts OpenAI tool schema to Gemini format."""
+        fn_decls = [
+            {
+                "name": t.get("function", {}).get("name"),
+                "description": t.get("function", {}).get("description", ""),
+                "parameters": t.get("function", {}).get("parameters", {}),
+            }
+            for t in tools
+        ]
+        headers, params = self._gemini_auth()
         resp = await _get_http_client().post(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-            params={"key": self.settings.gemini_api_key},
+            headers=headers,
+            params=params,
             json={
                 "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                "contents": contents,
+                "contents": self._to_gemini_format(messages),
                 "tools": [{"function_declarations": fn_decls}],
                 "tool_config": {"function_calling_config": {"mode": "AUTO"}},
             },
             timeout=30,
         )
         resp.raise_for_status()
-        data = resp.json()
-        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        parts = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
         intent = None
         text_parts = []
         for part in parts:
@@ -227,12 +345,15 @@ class LLMClient:
                 text_parts.append(part["text"])
         return intent, "".join(text_parts)
 
+    # ── fallback ──────────────────────────────────────────────────────────────
+
     def _fallback_response(self, messages: list[dict]) -> str:
         last = messages[-1]["content"] if messages else ""
         return (
             f"我理解你的想法：「{last}」\n\n"
-            "要启用完整的 AI 对话，请配置 API Key：\n"
-            "- 设置 `OPENAI_API_KEY` 使用 GPT-4o\n"
-            "- 或设置 `GEMINI_API_KEY` 使用 Gemini 2.5 Flash\n\n"
+            "要启用完整的 AI 对话，请在 `.env` 中配置以下任意一项：\n"
+            "- `QWEN_BASE_URL` — 使用本地/自托管 Qwen 模型（无需 API Key）\n"
+            "- `OPENAI_API_KEY` — 使用 GPT-4o\n"
+            "- `GEMINI_API_KEY` — 使用 Gemini 2.5 Flash\n\n"
             "你可以通过右侧面板手动设置风格并直接生成内容。"
         )

@@ -129,8 +129,8 @@ class ShotRouter:
         for segment in storyboard:
             plan = self.route_shot(segment, visual_style, prev_frame)
             plans.append(plan)
-            # After generation, extract_last_frame will be called to update prev_frame
-            # For now, we just record the chain dependency
-            prev_frame = f"__pending_frame_{plan.segment_id}__"
+            # first_frame for each plan is set here to "" — the actual frame URLs
+            # are resolved during execution in run_video_phase, which maintains
+            # its own prev_last_frame after each shot completes.
 
         return plans

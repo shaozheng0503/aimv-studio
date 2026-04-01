@@ -16,9 +16,10 @@ Pipeline flow (chord-based, no polling):
 """
 
 import asyncio
-import time
-import tempfile
 import os
+import tempfile
+import threading
+import time
 from celery import chord as celery_chord
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -41,13 +42,21 @@ def _get_sync_session() -> Session:
     return _SessionLocal()
 
 
+_thread_local = threading.local()
+
+
 def _run_async(coro):
-    """Run an async function from sync Celery context."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    """Run an async function from sync Celery context.
+
+    Reuses the per-thread event loop so we don't pay OS-level setup cost
+    on every generation call inside a long-lived Celery worker thread.
+    """
+    loop = getattr(_thread_local, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        _thread_local.loop = loop
+    return loop.run_until_complete(coro)
 
 
 def _sync_canvas_shot(db, task_id: int, task_type: str, task_params: dict, status: str, media_id=None) -> str | None:

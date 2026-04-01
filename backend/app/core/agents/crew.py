@@ -4,13 +4,28 @@ Defines 4 Agent roles (Screenwriter, Director, Music Producer, Verifier)
 and the task flow from user intent to generation-ready prompts.
 """
 
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Task, Crew, Process, LLM
 from app.core.agents.prompts import (
     SCREENWRITER_BACKSTORY, SCREENWRITER_GOAL,
     DIRECTOR_BACKSTORY, DIRECTOR_GOAL,
     MUSIC_PRODUCER_BACKSTORY, MUSIC_PRODUCER_GOAL,
     VERIFIER_BACKSTORY, VERIFIER_GOAL,
 )
+
+
+def _qwen_llm() -> LLM | None:
+    """Return a CrewAI LLM pointing to the Qwen endpoint, or None to use default."""
+    from app.config import get_settings
+    s = get_settings()
+    if not s.qwen_base_url:
+        return None
+    return LLM(
+        model=f"openai/{s.qwen_model}",
+        base_url=f"{s.qwen_base_url.rstrip('/')}/v1",
+        api_key="dummy",
+        temperature=0.7,
+        max_tokens=2000,
+    )
 
 
 def create_screenwriter() -> Agent:
@@ -20,6 +35,7 @@ def create_screenwriter() -> Agent:
         backstory=SCREENWRITER_BACKSTORY,
         verbose=False,
         allow_delegation=False,
+        llm=_qwen_llm(),
     )
 
 
@@ -30,6 +46,7 @@ def create_director() -> Agent:
         backstory=DIRECTOR_BACKSTORY,
         verbose=False,
         allow_delegation=False,
+        llm=_qwen_llm(),
     )
 
 
@@ -40,6 +57,7 @@ def create_music_producer() -> Agent:
         backstory=MUSIC_PRODUCER_BACKSTORY,
         verbose=False,
         allow_delegation=False,
+        llm=_qwen_llm(),
     )
 
 
@@ -50,6 +68,7 @@ def create_verifier() -> Agent:
         backstory=VERIFIER_BACKSTORY,
         verbose=False,
         allow_delegation=False,
+        llm=_qwen_llm(),
     )
 
 

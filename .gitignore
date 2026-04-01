@@ -26,6 +26,9 @@ frontend/.vite/
 pgdata/
 minio_data/
 
+# Credentials (service account keys, never commit)
+backend/credentials/
+
 # Media / Generated files
 /tmp/
 *.mp4

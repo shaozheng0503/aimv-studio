@@ -71,25 +71,24 @@ class VerifierAgent:
     async def _call_llm_judge(
         self, system_prompt: str, image_url: str = "", video_url: str = ""
     ) -> VerifyResult:
-        """Call OpenAI or Gemini to judge content quality.
+        """Call a vision-capable LLM to judge content quality.
 
-        OpenAI supports both image and video URLs directly.
-        Gemini only supports images — for video verification we extract a
-        representative frame (the last frame) and pass that instead.
+        Priority: OpenAI (GPT-4o vision) → Gemini (image only; extracts frame for video).
+        Falls back to pass-through when no vision LLM is configured.
         """
+        if not self.settings.openai_api_key and not self.settings.gemini_api_key:
+            return VerifyResult(passed=True, score=3.0, explanation="No vision LLM configured", dimensions={})
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 if self.settings.openai_api_key:
                     return await self._call_openai_judge(client, system_prompt, image_url or video_url)
-                elif self.settings.gemini_api_key:
-                    # For video: extract a frame from the video URL to use as proxy
-                    gemini_image_url = image_url
-                    if not gemini_image_url and video_url:
-                        gemini_image_url = await self._extract_frame_for_gemini(client, video_url)
-                    return await self._call_gemini_judge(client, system_prompt, gemini_image_url)
+                # Gemini: extract a representative frame for video inputs
+                gemini_image_url = image_url
+                if not gemini_image_url and video_url:
+                    gemini_image_url = await self._extract_frame_for_gemini(client, video_url)
+                return await self._call_gemini_judge(client, system_prompt, gemini_image_url)
         except Exception as e:
             return VerifyResult(passed=True, score=3.0, explanation=f"Verification skipped: {e}", dimensions={})
-        return VerifyResult(passed=True, score=3.0, explanation="No LLM configured", dimensions={})
 
     async def _extract_frame_for_gemini(self, client: httpx.AsyncClient, video_url: str) -> str:
         """Extract a representative frame from a video URL as a data URI for Gemini.

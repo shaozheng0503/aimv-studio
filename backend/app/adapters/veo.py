@@ -19,7 +19,14 @@ class VeoAdapter(BaseModelAdapter):
 
     async def generate(self, request: GenerateRequest) -> GenerateResult:
         settings = get_settings()
-        headers = {"x-goog-api-key": settings.veo_api_key}
+        if settings.veo_api_key:
+            headers = {"x-goog-api-key": settings.veo_api_key}
+        elif settings.google_sa_path:
+            from app.adapters.google_image import _get_access_token
+            token, _ = _get_access_token(settings.google_sa_path)
+            headers = {"Authorization": f"Bearer {token}"}
+        else:
+            raise RuntimeError("Veo requires veo_api_key or google_sa_path to be configured")
 
         body: dict = {
             "model": "veo-3.1",
