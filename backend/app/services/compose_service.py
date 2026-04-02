@@ -24,12 +24,19 @@ def _run_ffmpeg(cmd: list[str]) -> None:
 
 class ComposeService:
 
-    def concat_videos(self, video_paths: list[str], output_path: str) -> str:
+    def concat_videos(
+        self,
+        video_paths: list[str],
+        output_path: str,
+        target_width: int = 1920,
+        target_height: int = 1080,
+    ) -> str:
         """Concatenate video clips into a single video.
 
         Handles both local paths and HTTP(S) URLs (e.g. MinIO presigned URLs).
-        For HTTP inputs, clips are downloaded to a temp dir first so that the
-        concat demuxer can copy streams without re-encoding.
+        Normalises all clips to H264/AAC at target_width×target_height before
+        concat — this prevents codec/resolution mismatch failures when clips
+        come from different model providers (Veo, Grok, Seedance, Wan2.2).
         """
         import shutil
         import httpx
@@ -37,9 +44,10 @@ class ComposeService:
         resolved: list[str] = []
         tmp_dir = Path(tempfile.mkdtemp())
         try:
+            # Step 1: Download HTTP clips
             for i, p in enumerate(video_paths):
                 if p.startswith("http://") or p.startswith("https://"):
-                    dest = str(tmp_dir / f"clip_{i:04d}.mp4")
+                    dest = str(tmp_dir / f"raw_{i:04d}.mp4")
                     with httpx.stream("GET", p, timeout=120, follow_redirects=True) as r:
                         r.raise_for_status()
                         with open(dest, "wb") as f:
@@ -49,8 +57,35 @@ class ComposeService:
                 else:
                     resolved.append(p)
 
+            # Step 2: Normalise each clip to target resolution + H264.
+            # Video clips from cloud APIs (Veo, Grok, Seedance) may differ in
+            # resolution, codec, or pixel format.  We re-encode to H264 with
+            # scale+pad so the concat demuxer sees identical stream parameters.
+            # Audio is stripped here — the music track is merged in merge_audio_video.
+            normalised: list[str] = []
+            scale_filter = (
+                f"scale={target_width}:{target_height}:"
+                f"force_original_aspect_ratio=decrease,"
+                f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+                f"setsar=1,fps=fps=24"
+            )
+            for i, src in enumerate(resolved):
+                norm_path = str(tmp_dir / f"norm_{i:04d}.mp4")
+                _run_ffmpeg([
+                    "ffmpeg", "-y",
+                    "-allowed_extensions", "ALL",
+                    "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+                    "-i", src,
+                    "-vf", scale_filter,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-an",          # strip audio — music is added in compose step
+                    norm_path,
+                ])
+                normalised.append(norm_path)
+
+            # Step 3: Concat normalised clips (same codec/resolution → copy is safe)
             list_file = tmp_dir / "concat.txt"
-            list_file.write_text("\n".join(f"file '{p}'" for p in resolved))
+            list_file.write_text("\n".join(f"file '{p}'" for p in normalised))
             _run_ffmpeg([
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
                 "-i", str(list_file), "-c", "copy", output_path,

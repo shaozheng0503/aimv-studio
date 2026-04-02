@@ -75,7 +75,7 @@ class VeoAdapter(BaseModelAdapter):
                     return True, video_url
                 return False, ""
 
-            video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
+            video_url = await poll_until_done(_check, interval=4.0, timeout=600.0, label=f"veo:{op_name[-20:]}")
         return GenerateResult(
             file_url=video_url,
             metadata={"model": "veo-3.1", "operation": op_name},

@@ -57,11 +57,71 @@ class PlanningService:
         # Step 3: Merge the three task outputs into a single plan dict
         plan = self._merge_planning_tasks(result)
 
+        # If Agent 3 (Music Producer) failed to parse, provide a style-aware fallback
+        # so the pipeline always has a usable music_plan rather than generic defaults.
+        if not plan.get("music_plan"):
+            plan["music_plan"] = self._fallback_music_plan(
+                visual_style=visual_style,
+                music_style=music_style,
+                mood=mood,
+                music_data=music_data,
+            )
+
         # Pass through music_analysis if not already embedded
         if music_data and not plan.get("music_analysis"):
             plan["music_analysis"] = music_data
 
         return plan
+
+    @staticmethod
+    def _fallback_music_plan(
+        visual_style: str = "",
+        music_style: str = "",
+        mood: str = "",
+        music_data: dict | None = None,
+    ) -> dict:
+        """Construct a reasonable music_plan when Agent 3 fails to produce one.
+
+        Uses style/mood metadata so the fallback is contextually appropriate
+        rather than a completely generic placeholder.
+        """
+        _style_prompts = {
+            "赛博朋克": "Cyberpunk electronic music with driving synth basslines, glitch effects, and atmospheric pads. High energy, 120-140 BPM.",
+            "国风": "Traditional Chinese instrumental with erhu, guzheng, and pipa. Cinematic and emotionally resonant, 70-90 BPM.",
+            "韩娱": "K-pop inspired track with punchy beats, catchy hooks, and bright synths. Upbeat and polished, 95-115 BPM.",
+            "幻想童话": "Magical orchestral fantasy score with harp, strings, and choir. Dreamy and whimsical, 75-95 BPM.",
+            "复古迪斯科": "Disco-funk with electric bass, wah-wah guitar, brass stabs, and four-on-the-floor kick. Groovy, 110-120 BPM.",
+            "独立电影": "Indie cinematic ambient with acoustic guitar, piano, and subtle strings. Emotionally nuanced, 60-85 BPM.",
+            "都市甜酷": "Urban pop with lo-fi hip-hop beats, mellow keys, and smooth vocals. Chill yet stylish, 85-100 BPM.",
+        }
+        _mood_suffix = {
+            "epic": " Epic, grand, and emotionally powerful. Build to an orchestral climax.",
+            "energetic": " High energy, fast-paced, and exciting throughout.",
+            "melancholic": " Melancholic and introspective. Slow build, bittersweet resolution.",
+            "romantic": " Warm, tender, and emotionally intimate.",
+            "peaceful": " Calm, serene, and meditative. Minimal arrangement.",
+        }
+
+        base_prompt = (
+            _style_prompts.get(visual_style)
+            or (f"{music_style} music track, cinematic quality." if music_style else
+                "Cinematic instrumental music track. Emotional and atmospheric.")
+        )
+        base_prompt += _mood_suffix.get(mood, "")
+
+        bpm = int(music_data.get("bpm", 0)) if music_data else 0
+        needs_vocal = visual_style in {"韩娱", "赛博朋克"} and mood == "energetic"
+
+        return {
+            "music_prompt": base_prompt,
+            "model_recommendation": "suno" if needs_vocal else "acestep",
+            "needs_vocal": needs_vocal,
+            "bpm": bpm,
+            "key": "",
+            "structure_map": [],
+            "sync_points": [],
+            "_fallback": True,  # flag so caller knows this is auto-generated
+        }
 
     async def review_assets(
         self,
@@ -154,12 +214,24 @@ class PlanningService:
         else:
             director_shots = []
 
-        # Merge director's per-shot fields into the screenwriter's storyboard
+        # Merge director's per-shot fields into the screenwriter's storyboard.
+        # Normalise segment_id to int for matching (LLM sometimes outputs "1" vs 1).
         if director_shots and storyboard:
-            by_id = {s.get("segment_id"): s for s in director_shots if s.get("segment_id")}
+            def _norm_id(v) -> int | str:
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return v
+
+            by_id = {
+                _norm_id(s.get("segment_id")): s
+                for s in director_shots
+                if s.get("segment_id") is not None
+            }
             for i, seg in enumerate(storyboard):
-                shot = by_id.get(seg.get("segment_id")) or (director_shots[i] if i < len(director_shots) else {})
-                for key in ("image_prompt", "video_prompt", "camera_direction", "model_recommendation"):
+                sid = _norm_id(seg.get("segment_id"))
+                shot = by_id.get(sid) or (director_shots[i] if i < len(director_shots) else {})
+                for key in ("image_prompt", "negative_prompt", "video_prompt", "camera_direction", "model_recommendation"):
                     if key in shot and key not in seg:
                         seg[key] = shot[key]
         elif director_shots and not storyboard:

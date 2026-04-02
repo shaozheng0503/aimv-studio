@@ -83,7 +83,7 @@ class SeedanceAdapter(BaseModelAdapter):
                     )
                 return False, ""
 
-            download_url = await poll_until_done(_check, interval=5.0, timeout=600.0)
+            download_url = await poll_until_done(_check, interval=5.0, timeout=600.0, label=f"seedance:{task_id}")
 
         # Download the MP4 from XiaoYunQue and re-upload to MinIO
         async with httpx.AsyncClient(timeout=120) as dl_client:

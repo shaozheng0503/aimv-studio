@@ -160,13 +160,17 @@ async def chat(
         project.character_bank = plan.get("character_bank", {})
         project.status = "planning"
 
-        # Persist music analysis so subtitle export can use it later
+        # Always persist music_plan so run_full_pipeline can use Agent 3's output.
+        # Also persist music_analysis (when audio was uploaded) for subtitle export.
+        style_config = dict(project.style_config or {})
+        changed = False
+        if plan.get("music_plan"):
+            style_config["music_plan"] = plan["music_plan"]
+            changed = True
         if plan.get("music_analysis"):
-            style_config = dict(project.style_config or {})
             style_config["music_analysis"] = plan["music_analysis"]
-            # Also persist shot-level music plan for pipeline use
-            if plan.get("music_plan"):
-                style_config["music_plan"] = plan["music_plan"]
+            changed = True
+        if changed:
             project.style_config = style_config
 
         summary_parts = ["创作方案已生成！\n"]

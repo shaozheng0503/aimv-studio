@@ -58,7 +58,7 @@ class GrokVideoAdapter(BaseModelAdapter):
                     raise RuntimeError(f"Grok Video task {status}: {d.get('error', '')}")
                 return False, ""
 
-            video_url = await poll_until_done(_check, interval=4.0, timeout=600.0)
+            video_url = await poll_until_done(_check, interval=4.0, timeout=600.0, label=f"grok:{task_id}")
         return GenerateResult(
             file_url=video_url,
             metadata={"model": "grok-video", "task_id": task_id},

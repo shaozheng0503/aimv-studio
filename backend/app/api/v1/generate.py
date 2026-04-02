@@ -46,6 +46,19 @@ async def _create_task(
     return task
 
 
+def _merge_prompt(req: GenerateRequest) -> dict:
+    """Merge top-level req.prompt into params dict.
+
+    The API exposes `prompt` as a first-class field for convenience, but the
+    Celery worker reads it from params["prompt"].  This helper ensures the two
+    are always in sync so neither is silently dropped.
+    """
+    params = dict(req.params)
+    if req.prompt and not params.get("prompt"):
+        params["prompt"] = req.prompt
+    return params
+
+
 @router.post("/image", response_model=TaskResponse)
 async def generate_image(
     project_id: int,
@@ -55,7 +68,7 @@ async def generate_image(
 ):
     project = await _get_project(project_id, user, db)
     model = req.model_override or "z-image"
-    return await _create_task(db, project, "image", model, req.params)
+    return await _create_task(db, project, "image", model, _merge_prompt(req))
 
 
 @router.post("/video", response_model=TaskResponse)
@@ -66,7 +79,6 @@ async def generate_video(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _get_project(project_id, user, db)
-    # Model routing: use project style or user override
     model = req.model_override
     if not model:
         model = ModelRouter().route_video(
@@ -74,7 +86,7 @@ async def generate_video(
             quality="high",
             budget="cloud",
         )
-    return await _create_task(db, project, "video", model, req.params)
+    return await _create_task(db, project, "video", model, _merge_prompt(req))
 
 
 @router.post("/music", response_model=TaskResponse)
@@ -93,7 +105,7 @@ async def generate_music(
             style=project.music_style or "",
             quality="high",
         )
-    return await _create_task(db, project, "music", model, req.params)
+    return await _create_task(db, project, "music", model, _merge_prompt(req))
 
 
 @router.post("/compose", response_model=TaskResponse)

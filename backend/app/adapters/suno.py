@@ -51,7 +51,7 @@ class SunoAdapter(BaseModelAdapter):
                     raise RuntimeError(f"Suno generation failed: {d.get('error', 'unknown')}")
                 return False, ""
 
-            audio_url = await poll_until_done(_check, interval=5.0, timeout=300.0)
+            audio_url = await poll_until_done(_check, interval=5.0, timeout=300.0, label=f"suno:{song_id}")
         return GenerateResult(
             file_url=audio_url,
             duration=_final.get("duration"),

@@ -23,6 +23,7 @@ class ShotPlan:
     duration: float
     camera_direction: dict
     character_name: str
+    negative_prompt: str = ""
 
 
 class ShotRouter:
@@ -40,12 +41,17 @@ class ShotRouter:
         character_name = (segment.get("characters") or [""])[0]
         duration = segment.get("end_time", 0) - segment.get("start_time", 0)
         camera = segment.get("camera_direction", {})
+        negative_prompt = segment.get("negative_prompt", "")
 
-        if label == "sing":
-            # Singing segments → use Seedance (dance/performance) or Wan2.2 (lip-sync)
+        # Agent 2 (Director) may have recommended a specific model — respect it first.
+        # Fall back to style-based routing only when no recommendation is present.
+        agent_rec = segment.get("model_recommendation", "")
+        valid_models = {"seedance", "veo", "grok", "wan2.2"}
+        if agent_rec and agent_rec.lower() in valid_models:
+            model = agent_rec.lower()
+        elif label == "sing":
             model = self._route_sing(visual_style)
         else:
-            # Story segments → route by visual style
             model = self._route_story(visual_style)
 
         return ShotPlan(
@@ -57,6 +63,7 @@ class ShotRouter:
             duration=max(duration, 3.0),  # minimum 3 seconds
             camera_direction=camera,
             character_name=character_name,
+            negative_prompt=negative_prompt,
         )
 
     def _route_sing(self, style: str) -> str:

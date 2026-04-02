@@ -139,11 +139,31 @@ async def ws_progress(websocket: WebSocket, project_id: int):
     pubsub = get_async_redis().pubsub()
     channel = f"project:{project_id}:progress"
     await pubsub.subscribe(channel)
-    try:
+
+    # Heartbeat interval — keeps the WS alive through Nginx / cloud load-balancer
+    # idle-connection timeouts (typically 60-75 s). Clients should ignore {"type":"ping"}.
+    _HEARTBEAT = 25.0
+
+    async def _listen():
+        """Forward Redis pub/sub messages to the WebSocket client."""
         async for message in pubsub.listen():
             if message["type"] == "message":
                 data = json.loads(message["data"])
                 await websocket.send_json(data)
+
+    try:
+        listen_task = asyncio.create_task(_listen())
+        while not listen_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(listen_task), timeout=_HEARTBEAT)
+            except asyncio.TimeoutError:
+                # No events in the last _HEARTBEAT seconds — send ping to keep alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:
+                    listen_task.cancel()
+                    break
+        await listen_task  # propagate any exception from _listen
     except WebSocketDisconnect:
         pass
     finally:

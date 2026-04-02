@@ -33,6 +33,10 @@ class ACEStepAdapter(BaseModelAdapter):
         if instrumental and not lyrics.strip():
             lyrics = "[Instrumental]"
 
+        # infer_steps: 8 = turbo (fast, lower quality), 20-30 = standard quality.
+        # Use 20 for production MV output; allow override via params for testing.
+        infer_steps = float(p.get("infer_steps", 20))
+
         client = Client(base_url)
         result = client.predict(
             param_0=caption,
@@ -41,7 +45,7 @@ class ACEStepAdapter(BaseModelAdapter):
             param_3="",        # key_scale (auto)
             param_4="",        # time_sig (auto)
             param_5=vocal_language,
-            param_6=8.0,       # infer_steps (turbo default)
+            param_6=infer_steps,   # infer_steps (20 = standard quality)
             param_7=7.0,       # guidance_scale
             param_8=True,      # random_seed
             param_9="-1",      # seed

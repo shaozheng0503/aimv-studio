@@ -228,6 +228,7 @@ def run_full_pipeline(project_id: int):
                 model_name=image_model,
                 params={
                     "prompt": segment.get("image_prompt", segment.get("description", "")),
+                    "negative_prompt": segment.get("negative_prompt", ""),
                     "character_name": (segment.get("characters") or [""])[0],
                 },
             )
@@ -242,11 +243,35 @@ def run_full_pipeline(project_id: int):
             or music_params.get("model_recommendation")
             or "acestep"
         )
+
+        # Total video duration = end_time of the last storyboard segment.
+        # Passed to ACEStep so the generated track matches the video length exactly.
+        # Minimum 30s so ACEStep never receives a degenerate value.
+        total_duration = max(
+            max((seg.get("end_time", 0) for seg in storyboard), default=180.0),
+            30.0,
+        )
+
+        needs_vocal = bool(music_params.get("needs_vocal", False))
+        music_task_params: dict = {
+            "prompt": music_params.get("music_prompt", "cinematic background music for music video"),
+            # ACEStep params
+            "bpm": music_params.get("bpm", 0),
+            "duration": total_duration,
+            "instrumental": not needs_vocal,
+        }
+        # Suno / vocal-model params
+        if needs_vocal and music_params.get("lyrics_theme"):
+            music_task_params["lyrics"] = music_params["lyrics_theme"]
+        # genre for Suno
+        if project.music_style:
+            music_task_params["genre"] = project.music_style
+
         music_task = Task(
             project_id=project.id,
             type="music",
             model_name=music_model_name,
-            params={"prompt": music_params.get("music_prompt", "cinematic background music for music video")},
+            params=music_task_params,
         )
         db.add(music_task)
         db.flush()
@@ -322,6 +347,7 @@ def run_video_phase(_phase1_results, project_id: int):
                 model_name=video_model,
                 params={
                     "prompt": plan.prompt,
+                    "negative_prompt": plan.negative_prompt,
                     "character_name": plan.character_name,
                     "first_frame_image": first_frame,
                     "duration": plan.duration,

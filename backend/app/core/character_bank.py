@@ -20,13 +20,23 @@ class CharacterProfile:
     # e.g. ["kpop", "practice_room", "dance"]
 
     def to_prompt_suffix(self) -> str:
-        """Generate a prompt suffix describing this character for image/video generation."""
+        """Generate a prompt suffix describing this character for image/video generation.
+
+        Handles both dict (structured) and str (prose) values for appearance/outfit,
+        since LLM output often serializes these as prose descriptions.
+        """
         parts = []
         if self.appearance:
-            app = ", ".join(f"{k}: {v}" for k, v in self.appearance.items())
+            if isinstance(self.appearance, dict):
+                app = ", ".join(f"{k}: {v}" for k, v in self.appearance.items())
+            else:
+                app = str(self.appearance)
             parts.append(f"Character appearance: {app}")
         if self.outfit:
-            out = ", ".join(f"{k}: {v}" for k, v in self.outfit.items())
+            if isinstance(self.outfit, dict):
+                out = ", ".join(f"{k}: {v}" for k, v in self.outfit.items())
+            else:
+                out = str(self.outfit)
             parts.append(f"Wearing: {out}")
         if self.style_tags:
             parts.append(f"Style: {', '.join(self.style_tags)}")

@@ -72,6 +72,17 @@ def create_verifier() -> Agent:
     )
 
 
+def _summarize_energy_curve(curve: list) -> str:
+    """Return a compact energy curve summary for injection into LLM context."""
+    if not curve:
+        return "N/A"
+    n = len(curve)
+    # Show ~10 representative points with timestamps
+    step = max(1, n // 10)
+    points = [(i, round(curve[i], 2)) for i in range(0, n, step)]
+    return "  ".join(f"{i}s:{v}" for i, v in points)
+
+
 def build_planning_crew(
     user_intent: str,
     music_analysis: dict,
@@ -90,74 +101,134 @@ def build_planning_crew(
     director = create_director()
     music_producer = create_music_producer()
 
-    context_block = f"""
-## User Creative Intent
+    duration = music_analysis.get("duration") or 0
+    # Target segment count: 1 per 20-25s, clamped to [4, 10]
+    target_segments = max(4, min(10, round(duration / 22))) if duration else 6
+    # Minimum sing segments: ceil(25% of total)
+    min_sing = max(1, -(-target_segments // 4))  # ceiling division
+
+    sections = music_analysis.get("sections", [])
+    sections_str = (
+        "\n".join(
+            f"  {s.get('label','?')} {s.get('start',0):.1f}s–{s.get('end',0):.1f}s  energy={s.get('energy',0):.2f}"
+            for s in sections
+        )
+        if sections else "  (no sections detected)"
+    )
+
+    energy_summary = _summarize_energy_curve(music_analysis.get("energy_curve", []))
+
+    lyrics_lines = music_analysis.get("lyrics", [])
+    lyrics_str = (
+        "\n".join(f"  [{l.get('start',0):.1f}s–{l.get('end',0):.1f}s] {l.get('text','')}" for l in lyrics_lines[:20])
+        if lyrics_lines else "  (no lyrics detected / instrumental)"
+    )
+
+    context_block = f"""## User Creative Intent
 {user_intent}
 
 ## Music Analysis
 BPM: {music_analysis.get('bpm', 'unknown')}
-Duration: {music_analysis.get('duration', 'unknown')}s
-Sections: {music_analysis.get('sections', [])}
-Lyrics: {music_analysis.get('lyrics', [])}
-Energy curve: {music_analysis.get('energy_curve', [])}
+Duration: {duration or 'unknown'}s
+Song sections:
+{sections_str}
+Energy curve (second: energy 0-1):
+  {energy_summary}
+Lyrics:
+{lyrics_str}
 
 ## Style Preferences
 Visual style: {visual_style or 'auto'}
 Music style: {music_style or 'auto'}
 Mood: {mood or 'auto'}
-"""
+
+## Storyboard Requirements
+Target segments: {target_segments} (one per ~20-25 seconds)
+Minimum "sing" segments: {min_sing} (at chorus/high-energy sections)
+Minimum segment duration: 10 seconds
+Maximum segment duration: 40 seconds"""
 
     task_screenwrite = Task(
-        description=f"""Create a complete MV storyboard and character bank based on the following context.
+        description=f"""Create a complete MV storyboard and character bank.
 
 {context_block}
 
-Output a JSON object with two keys:
-- "character_bank": dict of character profiles
-- "storyboard": list of segment objects
+Output a single JSON object with exactly two keys:
+- "character_bank": dict of character profiles (appearance and outfit as prose English strings)
+- "storyboard": list of exactly {target_segments} segment objects
 
-Each segment: {{segment_id, label, start_time, end_time, description, mood, characters}}
-Align segments with the music sections provided in the analysis.""",
-        expected_output="JSON with character_bank and storyboard",
+Storyboard rules:
+1. segment_id must be sequential integers starting at 1
+2. At least {min_sing} segments must have label "sing" (place them at high-energy sections)
+3. Align start_time/end_time with the song sections above
+4. description must be 2-3 vivid English sentences describing the shot
+5. characters list uses the character_bank key (e.g. "The_Wanderer"), empty [] for landscape shots
+
+Output JSON only — no explanation, no markdown fence.""",
+        expected_output='{"character_bank": {...}, "storyboard": [...]}',
         agent=screenwriter,
     )
 
     task_direct = Task(
-        description="""Based on the screenwriter's storyboard and character bank, create visual
-generation prompts for each segment.
+        description=f"""Based on the screenwriter's storyboard and character bank, create AI-generation-ready
+visual prompts for every segment.
 
-For each storyboard segment, output an object with these fields:
-- segment_id (copy from the storyboard segment, e.g. "seg_001")
-- image_prompt (English, detailed, optimized for AI image generation)
-- video_prompt (English, includes motion and duration)
-- camera_direction (subject, action, camera_movement, composition, lighting)
-- model_recommendation (seedance/veo/grok/wan2.2)
+Visual style anchor: {visual_style or 'cinematic'}
+Aspect ratio for ALL prompts: 16:9
 
-Use frame-chaining: each shot's last frame is the next shot's first frame.
-Include the character descriptions from the character bank in every prompt.
+For each storyboard segment output one JSON object. Collect all objects into a JSON array.
 
-Output ONLY a JSON array of shot objects (no wrapper dict).""",
-        expected_output="JSON array of shot objects with segment_id, prompts, and camera directions",
+Required fields per shot:
+- segment_id: integer (copy exactly from storyboard)
+- image_prompt: detailed English prompt (include 16:9, 8K, art-style keywords, full character prose)
+- negative_prompt: what to avoid (always include "watermark, text, blurry, distorted anatomy, artifacts")
+- video_prompt: image_prompt content + motion description + duration + transition hint
+- camera_direction: {{subject, action, camera_movement, composition, lighting, ambiance}}
+- model_recommendation: one of "seedance" | "veo" | "grok" | "wan2.2"
+
+Frame-chaining rule: each shot's video_prompt must end with
+  "transition hint: <fade/cut/dissolve> to <brief next-scene description>"
+
+Model selection:
+- "sing" label → always "seedance"
+- montage/fast-cut/abstract → always "grok"
+- cinematic landscape/narrative → "veo"
+
+Output ONLY a JSON array — no wrapper dict, no explanation.""",
+        expected_output="JSON array of shot objects",
         agent=director,
         context=[task_screenwrite],
     )
 
     task_music = Task(
-        description="""Based on the storyboard and visual direction plan, design the music for this MV.
+        description=f"""Design the complete music generation plan for this MV.
 
-Output ONLY the following JSON object (do NOT repeat the storyboard or character bank):
-{
-  "music_plan": {
-    "music_prompt": "<detailed English prompt describing the full track>",
-    "model_recommendation": "acestep",
-    "needs_vocal": true/false,
+Music style preference: {music_style or 'auto'}
+Mood: {mood or 'auto'}
+Total duration target: {duration or 180}s
+
+Use the energy curve summary to place musical peaks at visual climax points:
+  {energy_summary}
+
+Output ONLY this JSON (do NOT repeat storyboard or character_bank):
+{{
+  "music_plan": {{
+    "music_prompt": "<detailed English prompt>",
+    "model_recommendation": "acestep" | "suno" | "lyria",
+    "needs_vocal": true | false,
+    "bpm": <int>,
+    "key": "<e.g. C# minor>",
     "structure_map": [
-      {"section": "<name>", "start_time": 0.0, "end_time": 30.0, "description": "..."}
+      {{"section": "<name>", "start_time": 0.0, "end_time": 30.0, "description": "<what music does + why it matches visual>"}}
     ],
-    "sync_points": [{"time": 0.0, "event": "<visual event to sync>"}]
-  }
-}""",
-        expected_output="JSON object with music_plan key only",
+    "sync_points": [
+      {{"time": 0.0, "event": "<specific visual moment>", "musical_cue": "<beat drop / orchestral hit / silence>"}}
+    ]
+  }}
+}}
+
+music_prompt must specify: genre, mood arc, BPM range, key, instrumentation, structure, reference artists.""",
+        expected_output='{"music_plan": {...}}',
         agent=music_producer,
         context=[task_screenwrite, task_direct],
     )
