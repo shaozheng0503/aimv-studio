@@ -39,6 +39,20 @@ def _get_llm() -> LLMClient:
         _llm = LLMClient()
     return _llm
 
+
+async def _collect_stream(result) -> str:
+    """Drain a possibly-streaming LLM response into a plain string."""
+    if isinstance(result, str):
+        return result
+    chunks: list[str] = []
+    async for chunk in result:
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
+# Direct project fields updated from intent extraction tool results
+_INTENT_PROJECT_FIELDS = ("visual_style", "mood", "music_style")
+
 # Intent extraction tool schema for LLM function calling
 _INTENT_TOOLS = [
     {
@@ -120,13 +134,7 @@ async def chat_guest(req: ChatMessage, request: Request):
     history = [m for m in prior if m.get("role") in ("user", "assistant")]
     history.append({"role": "user", "content": req.message})
 
-    response_text = await _get_llm().chat(_trim_for_llm(history), stream=False)
-    if not isinstance(response_text, str):
-        chunks: list[str] = []
-        async for chunk in response_text:
-            chunks.append(chunk)
-        response_text = "".join(chunks)
-
+    response_text = await _collect_stream(await _get_llm().chat(_trim_for_llm(history), stream=False))
     return ChatResponse(role="assistant", content=response_text)
 
 
@@ -221,15 +229,10 @@ async def chat(
     if tool_result:
         intent_extracted = tool_result
         updated = False
-        if tool_result.get("visual_style"):
-            project.visual_style = tool_result["visual_style"]
-            updated = True
-        if tool_result.get("mood"):
-            project.mood = tool_result["mood"]
-            updated = True
-        if tool_result.get("music_style"):
-            project.music_style = tool_result["music_style"]
-            updated = True
+        for field in _INTENT_PROJECT_FIELDS:
+            if tool_result.get(field):
+                setattr(project, field, tool_result[field])
+                updated = True
         if tool_result.get("story_concept"):
             style_config = dict(project.style_config or {})
             style_config["story_concept"] = tool_result["story_concept"]
@@ -240,12 +243,7 @@ async def chat(
 
     # If the tool-call turn returned no text, fall back to a plain chat call
     if not response_text:
-        response_text = await _get_llm().chat(_trim_for_llm(history), stream=False)
-        if not isinstance(response_text, str):
-            chunks = []
-            async for chunk in response_text:
-                chunks.append(chunk)
-            response_text = "".join(chunks)
+        response_text = await _collect_stream(await _get_llm().chat(_trim_for_llm(history), stream=False))
 
     history.append({"role": "assistant", "content": response_text})
     project.chat_history = history

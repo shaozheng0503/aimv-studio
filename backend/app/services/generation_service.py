@@ -4,6 +4,8 @@ Handles the full generate → verify → retry loop for each asset type.
 Uses CharacterBank for prompt enrichment and VerifierAgent for quality gates.
 """
 
+from typing import Callable, Awaitable
+
 from app.adapters.base import BaseModelAdapter, GenerateRequest, GenerateResult
 from app.adapters.z_image import ZImageAdapter
 from app.adapters.acestep import ACEStepAdapter
@@ -15,7 +17,7 @@ from app.adapters.veo import VeoAdapter
 from app.adapters.grok_video import GrokVideoAdapter
 from app.adapters.google_image import GeminiImageAdapter
 from app.core.character_bank import CharacterBank
-from app.core.verifier import VerifierAgent, MAX_RETRIES
+from app.core.verifier import VerifierAgent, VerifyResult, MAX_RETRIES
 
 
 ADAPTER_MAP: dict[str, type[BaseModelAdapter]] = {
@@ -79,6 +81,34 @@ class GenerationService:
             self._adapter_instances[canonical] = adapter_cls()
         return self._adapter_instances[canonical]
 
+    async def _generate_with_retry(
+        self,
+        adapter: BaseModelAdapter,
+        request: GenerateRequest,
+        verify_fn: Callable[[str], Awaitable[VerifyResult]],
+    ) -> GenerateResult:
+        """Run generate → verify → retry loop; return best result across attempts."""
+        best_result: GenerateResult | None = None
+        best_score = 0.0
+        result: GenerateResult | None = None
+
+        for _ in range(MAX_RETRIES):
+            result = await adapter.generate(request)
+            verification = await verify_fn(result.file_url)
+            result.metadata["quality_score"] = verification.score
+            result.metadata["verification"] = {
+                "passed": verification.passed,
+                "dimensions": verification.dimensions,
+                "explanation": verification.explanation,
+            }
+            if verification.score > best_score:
+                best_score = verification.score
+                best_result = result
+            if verification.passed:
+                return result
+
+        return best_result or result  # type: ignore[return-value]
+
     async def generate_image(
         self,
         prompt: str,
@@ -89,45 +119,17 @@ class GenerationService:
         reference_images: list[str] | None = None,
     ) -> GenerateResult:
         """Generate an image with character enrichment and quality verification."""
-
-        # Enrich prompt with character info
         if character_bank and character_name:
             prompt = character_bank.enrich_prompt(prompt, character_name)
             if not reference_images:
                 reference_images = character_bank.get_reference_images(character_name)
 
-        adapter = self.get_adapter(model_name)
-        request = GenerateRequest(
-            prompt=prompt,
-            params=params or {},
-            reference_images=reference_images or [],
-        )
-
-        # Generate with verify-retry loop
-        best_result = None
-        best_score = 0.0
-        result = None
         char_desc = character_bank.get_prompt_suffix(character_name) if character_bank and character_name else ""
-
-        for attempt in range(MAX_RETRIES):
-            result = await adapter.generate(request)
-            verification = await self.verifier.verify_image(result.file_url, prompt, char_desc)
-            result.metadata["quality_score"] = verification.score
-            result.metadata["verification"] = {
-                "passed": verification.passed,
-                "dimensions": verification.dimensions,
-                "explanation": verification.explanation,
-            }
-
-            if verification.score > best_score:
-                best_score = verification.score
-                best_result = result
-
-            if verification.passed:
-                return result
-
-        # Return best attempt even if none passed
-        return best_result or result
+        adapter = self.get_adapter(model_name)
+        request = GenerateRequest(prompt=prompt, params=params or {}, reference_images=reference_images or [])
+        return await self._generate_with_retry(
+            adapter, request, lambda url: self.verifier.verify_image(url, prompt, char_desc)
+        )
 
     async def generate_video(
         self,
@@ -139,7 +141,6 @@ class GenerationService:
         params: dict | None = None,
     ) -> GenerateResult:
         """Generate a video clip with frame-chaining and quality verification."""
-
         if character_bank and character_name:
             prompt = character_bank.enrich_prompt(prompt, character_name)
 
@@ -147,36 +148,12 @@ class GenerationService:
         if character_bank and character_name and not reference_images:
             reference_images = character_bank.get_reference_images(character_name)
 
-        adapter = self.get_adapter(model_name)
-        request = GenerateRequest(
-            prompt=prompt,
-            params=params or {},
-            reference_images=reference_images,
-        )
-
-        best_result = None
-        best_score = 0.0
-        result = None
         char_desc = character_bank.get_prompt_suffix(character_name) if character_bank and character_name else ""
-
-        for attempt in range(MAX_RETRIES):
-            result = await adapter.generate(request)
-            verification = await self.verifier.verify_video(result.file_url, prompt, char_desc)
-            result.metadata["quality_score"] = verification.score
-            result.metadata["verification"] = {
-                "passed": verification.passed,
-                "dimensions": verification.dimensions,
-                "explanation": verification.explanation,
-            }
-
-            if verification.score > best_score:
-                best_score = verification.score
-                best_result = result
-
-            if verification.passed:
-                return result
-
-        return best_result or result
+        adapter = self.get_adapter(model_name)
+        request = GenerateRequest(prompt=prompt, params=params or {}, reference_images=reference_images)
+        return await self._generate_with_retry(
+            adapter, request, lambda url: self.verifier.verify_video(url, prompt, char_desc)
+        )
 
     async def generate_music(
         self,
@@ -187,25 +164,7 @@ class GenerationService:
         """Generate music with verify-retry loop (consistent with image/video)."""
         adapter = self.get_adapter(model_name)
         request = GenerateRequest(prompt=prompt, params=params or {})
-
-        best_result = None
-        best_score = 0.0
-        result = None
-
-        for attempt in range(MAX_RETRIES):
-            result = await adapter.generate(request)
-            verification = await self.verifier.verify_music(result.file_url, prompt)
-            result.metadata["quality_score"] = verification.score
-            result.metadata["verification"] = {
-                "passed": verification.passed,
-                "dimensions": verification.dimensions,
-                "explanation": verification.explanation,
-            }
-            if verification.score > best_score:
-                best_score = verification.score
-                best_result = result
-            if verification.passed:
-                return result
-
-        return best_result or result
+        return await self._generate_with_retry(
+            adapter, request, lambda url: self.verifier.verify_music(url, prompt)
+        )
 
