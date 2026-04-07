@@ -7,35 +7,18 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.llm_client import LLMClient
+from app.core.llm_client import get_llm
 from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.models.project import Project, Task, Media
 from app.models.canvas import Canvas, CanvasShot
 from app.workers.generation_tasks import run_generation_task
+from app.api.v1.deps import get_owned_project
 
 router = APIRouter(prefix="/projects/{project_id}/canvas", tags=["canvas"])
 
-_llm: LLMClient | None = None
-
-
-def _get_llm() -> LLMClient:
-    global _llm
-    if _llm is None:
-        _llm = LLMClient()
-    return _llm
-
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
-
-async def _get_project(project_id: int, user: User, db: AsyncSession) -> Project:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
 
 
 async def _get_or_create_canvas(project_id: int, db: AsyncSession) -> Canvas:
@@ -47,6 +30,17 @@ async def _get_or_create_canvas(project_id: int, db: AsyncSession) -> Canvas:
         await db.commit()
         await db.refresh(canvas)
     return canvas
+
+
+async def _load_shots(canvas_id: int, db: AsyncSession) -> list[CanvasShot]:
+    """Load all shots for a canvas, ordered by sort_order, with media pre-loaded."""
+    result = await db.execute(
+        select(CanvasShot)
+        .where(CanvasShot.canvas_id == canvas_id)
+        .options(selectinload(CanvasShot.media))
+        .order_by(CanvasShot.sort_order)
+    )
+    return list(result.scalars().all())
 
 
 # ─── schemas ──────────────────────────────────────────────────────────────────
@@ -117,23 +111,15 @@ async def get_canvas(
     db: AsyncSession = Depends(get_db),
 ):
     """Load the canvas graph state and all shot records for a project."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
-
-    shots_result = await db.execute(
-        select(CanvasShot)
-        .where(CanvasShot.canvas_id == canvas.id)
-        .options(selectinload(CanvasShot.media))
-        .order_by(CanvasShot.sort_order)
-    )
-    shots_with_media = shots_result.scalars().all()
-
+    shots = await _load_shots(canvas.id, db)
     return CanvasResponse(
         project_id=project_id,
         nodes=canvas.nodes or [],
         edges=canvas.edges or [],
         viewport=canvas.viewport or {},
-        shots=[CanvasShotResponse.from_orm_with_media(s) for s in shots_with_media],
+        shots=[CanvasShotResponse.from_orm_with_media(s) for s in shots],
         updated_at=canvas.updated_at,
     )
 
@@ -148,7 +134,7 @@ async def save_canvas(
     """Save the full VueFlow graph (nodes + edges + viewport).
     Also upserts CanvasShot records for every shot-type node.
     """
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
 
     canvas.nodes = req.nodes
@@ -198,16 +184,7 @@ async def save_canvas(
 
     await db.commit()
     await db.refresh(canvas)
-
-    # Return updated state
-    shots_result = await db.execute(
-        select(CanvasShot)
-        .where(CanvasShot.canvas_id == canvas.id)
-        .options(selectinload(CanvasShot.media))
-        .order_by(CanvasShot.sort_order)
-    )
-    shots = shots_result.scalars().all()
-
+    shots = await _load_shots(canvas.id, db)
     return CanvasResponse(
         project_id=project_id,
         nodes=canvas.nodes,
@@ -229,7 +206,7 @@ async def generate_shot(
     """Dispatch generation for a single shot node.
     canvas_context is assembled by the frontend from the connected nodes.
     """
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
 
     # Get or create the CanvasShot record
@@ -300,7 +277,7 @@ async def generate_all_pending(
     db: AsyncSession = Depends(get_db),
 ):
     """Dispatch generation for all pending shots in order (respects sort_order)."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
 
     shots_result = await db.execute(
@@ -353,7 +330,7 @@ async def get_shot_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Poll generation status for a specific shot node."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
     canvas = await _get_or_create_canvas(project_id, db)
 
     result = await db.execute(
@@ -413,7 +390,7 @@ async def generate_music_node(
     db: AsyncSession = Depends(get_db),
 ):
     """Dispatch ACE-Step V1.5 music generation for a Song node on the canvas."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
 
     task = Task(
         project_id=project_id,
@@ -448,7 +425,7 @@ async def get_music_node_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Poll ACE-Step generation status for a Song node."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
 
     result = await db.execute(
         select(Task)
@@ -501,7 +478,7 @@ async def suggest_prompt(
     db: AsyncSession = Depends(get_db),
 ):
     """Use LLM to generate a shot prompt from canvas context."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
 
     ctx = req.canvas_context
     parts: list[str] = []
@@ -532,7 +509,7 @@ async def suggest_prompt(
     )
 
     try:
-        result = await _get_llm().chat(
+        result = await get_llm().chat(
             [{"role": "user", "content": user_msg}],
             system=system_msg,
         )
@@ -578,13 +555,13 @@ async def optimize_prompt(
     db: AsyncSession = Depends(get_db),
 ):
     """Use LLM to optimize a user-written prompt for the given node type."""
-    await _get_project(project_id, user, db)
+    await get_owned_project(project_id, user, db)
 
     system_msg, user_tpl = _OPTIMIZE_PROMPTS.get(req.type, _OPTIMIZE_PROMPTS["video"])
     user_msg = user_tpl.format(prompt=req.prompt)
 
     try:
-        result = await _get_llm().chat(
+        result = await get_llm().chat(
             [{"role": "user", "content": user_msg}],
             system=system_msg,
         )

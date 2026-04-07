@@ -15,13 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import json
 
 from app.core.database import get_db
-from app.core.llm_client import LLMClient
+from app.core.llm_client import LLMClient, get_llm
 from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.models.project import Project
+from app.api.v1.deps import get_owned_project
 
 router = APIRouter(tags=["chat"])
-_llm: LLMClient | None = None
 
 # Max messages sent to LLM per request (keeps most-recent context, avoids context overflow).
 # Full history is always saved to DB for display purposes.
@@ -31,13 +31,6 @@ _LLM_HISTORY_WINDOW = 20
 def _trim_for_llm(history: list[dict]) -> list[dict]:
     """Return the last _LLM_HISTORY_WINDOW messages for LLM calls."""
     return history[-_LLM_HISTORY_WINDOW:] if len(history) > _LLM_HISTORY_WINDOW else history
-
-
-def _get_llm() -> LLMClient:
-    global _llm
-    if _llm is None:
-        _llm = LLMClient()
-    return _llm
 
 
 async def _collect_stream(result) -> str:
@@ -112,15 +105,6 @@ class ChatResponse(BaseModel):
     intent_extracted: dict | None = None
 
 
-async def _load_project(project_id: int, user: User, db: AsyncSession) -> Project:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
-
 
 @router.post("/chat/guest")
 async def chat_guest(req: ChatMessage, request: Request):
@@ -134,7 +118,7 @@ async def chat_guest(req: ChatMessage, request: Request):
     history = [m for m in prior if m.get("role") in ("user", "assistant")]
     history.append({"role": "user", "content": req.message})
 
-    response_text = await _collect_stream(await _get_llm().chat(_trim_for_llm(history), stream=False))
+    response_text = await _collect_stream(await get_llm().chat(_trim_for_llm(history), stream=False))
     return ChatResponse(role="assistant", content=response_text)
 
 
@@ -145,7 +129,7 @@ async def chat(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(project_id, user, db)
+    project = await get_owned_project(project_id, user, db)
 
     history = project.chat_history or []
     history.append({"role": "user", "content": req.message})
@@ -201,7 +185,7 @@ async def chat(
         async def event_stream():
             full_text = ""
             try:
-                stream = await _get_llm().chat(_trim_for_llm(history), stream=True)
+                stream = await get_llm().chat(_trim_for_llm(history), stream=True)
                 if isinstance(stream, str):
                     yield f"data: {json.dumps({'content': stream})}\n\n"
                     full_text = stream
@@ -224,7 +208,7 @@ async def chat(
     # Falls back to a second llm.chat() only when the model returns no text
     # (rare — happens when tool_choice forces a tool call with no accompanying reply).
     intent_extracted: dict | None = None
-    tool_result, response_text = await _get_llm().chat_with_tools(_trim_for_llm(history), _INTENT_TOOLS)
+    tool_result, response_text = await get_llm().chat_with_tools(_trim_for_llm(history), _INTENT_TOOLS)
 
     if tool_result:
         intent_extracted = tool_result
@@ -243,7 +227,7 @@ async def chat(
 
     # If the tool-call turn returned no text, fall back to a plain chat call
     if not response_text:
-        response_text = await _collect_stream(await _get_llm().chat(_trim_for_llm(history), stream=False))
+        response_text = await _collect_stream(await get_llm().chat(_trim_for_llm(history), stream=False))
 
     history.append({"role": "assistant", "content": response_text})
     project.chat_history = history
@@ -257,5 +241,5 @@ async def chat_history(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(project_id, user, db)
+    project = await get_owned_project(project_id, user, db)
     return project.chat_history or []

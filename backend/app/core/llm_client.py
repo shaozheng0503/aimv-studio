@@ -354,3 +354,16 @@ class LLMClient:
             "- `GEMINI_API_KEY` — 使用 Gemini 2.5 Flash\n\n"
             "你可以通过右侧面板手动设置风格并直接生成内容。"
         )
+
+
+# Module-level singleton — avoids creating a new LLMClient (and re-reading settings)
+# on every request. Import get_llm() wherever an LLMClient is needed.
+_llm_instance: LLMClient | None = None
+
+
+def get_llm() -> LLMClient:
+    """Return the process-wide LLMClient singleton."""
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = LLMClient()
+    return _llm_instance

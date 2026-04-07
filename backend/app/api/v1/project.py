@@ -8,6 +8,7 @@ from app.models.project import Project, Task, Media
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse, TaskResponse, MediaResponse,
 )
+from app.api.v1.deps import get_owned_project
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -42,13 +43,7 @@ async def get_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+    return await get_owned_project(project_id, user, db)
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -58,12 +53,7 @@ async def update_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await get_owned_project(project_id, user, db)
     for key, value in req.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
     await db.commit()
@@ -77,12 +67,7 @@ async def delete_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await get_owned_project(project_id, user, db)
 
     # Collect all media URLs before deleting DB records
     media_result = await db.execute(

@@ -9,6 +9,7 @@ from app.models.project import Project, Task
 from app.schemas.project import TaskResponse
 from app.workers.generation_tasks import run_generation_task
 from app.core.model_router import ModelRouter
+from app.api.v1.deps import get_owned_project
 
 router = APIRouter(prefix="/projects/{project_id}/generate", tags=["generate"])
 
@@ -17,16 +18,6 @@ class GenerateRequest(BaseModel):
     prompt: str | None = None
     model_override: str | None = None
     params: dict = {}
-
-
-async def _get_project(project_id: int, user: User, db: AsyncSession) -> Project:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
 
 
 async def _create_task(
@@ -66,7 +57,7 @@ async def generate_image(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project(project_id, user, db)
+    project = await get_owned_project(project_id, user, db)
     model = req.model_override or "z-image"
     return await _create_task(db, project, "image", model, _merge_prompt(req))
 
@@ -78,7 +69,7 @@ async def generate_video(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project(project_id, user, db)
+    project = await get_owned_project(project_id, user, db)
     model = req.model_override
     if not model:
         model = ModelRouter().route_video(
@@ -96,7 +87,7 @@ async def generate_music(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project(project_id, user, db)
+    project = await get_owned_project(project_id, user, db)
     model = req.model_override
     if not model:
         needs_vocal = req.params.get("needs_vocal", False)
@@ -115,5 +106,5 @@ async def compose(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project(project_id, user, db)
+    project = await get_owned_project(project_id, user, db)
     return await _create_task(db, project, "compose", "ffmpeg", req.params)
