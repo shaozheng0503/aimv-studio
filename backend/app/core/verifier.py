@@ -7,6 +7,7 @@ Triggers automatic retry if quality falls below threshold.
 import httpx
 from dataclasses import dataclass
 from app.config import get_settings
+from app.core.llm_client import GEMINI_BASE_URL
 
 
 @dataclass
@@ -159,7 +160,7 @@ class VerifierAgent:
                 "inline_data": {"mime_type": mime, "data": b64}
             })
         resp = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            f"{GEMINI_BASE_URL}:generateContent",
             params={"key": self.settings.gemini_api_key},
             json={"contents": [{"parts": content_parts}]},
         )

@@ -12,6 +12,14 @@ from app.core.agents.prompts import (
     VERIFIER_BACKSTORY, VERIFIER_GOAL,
 )
 
+# Agent configuration: name → (role, goal, backstory)
+_AGENT_CONFIGS: dict[str, tuple[str, str, str]] = {
+    "screenwriter": ("MV Screenwriter", SCREENWRITER_GOAL, SCREENWRITER_BACKSTORY),
+    "director": ("MV Visual Director", DIRECTOR_GOAL, DIRECTOR_BACKSTORY),
+    "music_producer": ("Music Producer", MUSIC_PRODUCER_GOAL, MUSIC_PRODUCER_BACKSTORY),
+    "verifier": ("Quality Director", VERIFIER_GOAL, VERIFIER_BACKSTORY),
+}
+
 
 def _qwen_llm() -> LLM | None:
     """Return a CrewAI LLM pointing to the Qwen endpoint, or None to use default."""
@@ -28,47 +36,12 @@ def _qwen_llm() -> LLM | None:
     )
 
 
-def create_screenwriter() -> Agent:
+def _create_agent(name: str, llm: LLM | None = None) -> Agent:
+    """Create an agent by name from the configuration table."""
+    role, goal, backstory = _AGENT_CONFIGS[name]
     return Agent(
-        role="MV Screenwriter",
-        goal=SCREENWRITER_GOAL,
-        backstory=SCREENWRITER_BACKSTORY,
-        verbose=False,
-        allow_delegation=False,
-        llm=_qwen_llm(),
-    )
-
-
-def create_director() -> Agent:
-    return Agent(
-        role="MV Visual Director",
-        goal=DIRECTOR_GOAL,
-        backstory=DIRECTOR_BACKSTORY,
-        verbose=False,
-        allow_delegation=False,
-        llm=_qwen_llm(),
-    )
-
-
-def create_music_producer() -> Agent:
-    return Agent(
-        role="Music Producer",
-        goal=MUSIC_PRODUCER_GOAL,
-        backstory=MUSIC_PRODUCER_BACKSTORY,
-        verbose=False,
-        allow_delegation=False,
-        llm=_qwen_llm(),
-    )
-
-
-def create_verifier() -> Agent:
-    return Agent(
-        role="Quality Director",
-        goal=VERIFIER_GOAL,
-        backstory=VERIFIER_BACKSTORY,
-        verbose=False,
-        allow_delegation=False,
-        llm=_qwen_llm(),
+        role=role, goal=goal, backstory=backstory,
+        verbose=False, allow_delegation=False, llm=llm,
     )
 
 
@@ -97,9 +70,10 @@ def build_planning_crew(
     2. Director converts storyboard → image/video prompts + camera directions
     3. Music Producer designs music prompt aligned with visual plan
     """
-    screenwriter = create_screenwriter()
-    director = create_director()
-    music_producer = create_music_producer()
+    llm = _qwen_llm()
+    screenwriter = _create_agent("screenwriter", llm)
+    director = _create_agent("director", llm)
+    music_producer = _create_agent("music_producer", llm)
 
     duration = music_analysis.get("duration") or 0
     # Target segment count: 1 per 20-25s, clamped to [4, 10]
@@ -247,7 +221,7 @@ def build_review_crew(
     character_bank: dict,
 ) -> Crew:
     """Build a CrewAI crew for the review phase (verify generated content quality)."""
-    verifier = create_verifier()
+    verifier = _create_agent("verifier", _qwen_llm())
 
     task_review = Task(
         description=f"""Review the following generated MV assets against the original plan.

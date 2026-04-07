@@ -125,19 +125,9 @@ class ShotRouter:
         storyboard: list[dict],
         visual_style: str = "",
     ) -> list[ShotPlan]:
-        """Plan all shots with frame-chaining.
+        """Plan model routing for all shots.
 
-        The first shot has no previous frame.
-        Each subsequent shot uses the last frame of the previous shot.
+        Frame-chaining (first_frame URLs) is resolved at execution time
+        in run_video_phase, not here — plans are returned with first_frame="".
         """
-        plans = []
-        prev_frame = ""
-
-        for segment in storyboard:
-            plan = self.route_shot(segment, visual_style, prev_frame)
-            plans.append(plan)
-            # first_frame for each plan is set here to "" — the actual frame URLs
-            # are resolved during execution in run_video_phase, which maintains
-            # its own prev_last_frame after each shot completes.
-
-        return plans
+        return [self.route_shot(seg, visual_style) for seg in storyboard]

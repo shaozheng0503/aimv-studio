@@ -14,6 +14,44 @@ from app.core.agents.crew import build_planning_crew, build_review_crew
 from app.core.music_analyzer import MusicAnalyzer, MusicAnalysis
 
 
+def _extract_json(text: str) -> dict | list | None:
+    """Extract the first valid JSON value (dict or list) from a text blob.
+
+    Strategy:
+    1. Whole string as JSON.
+    2. Last code fence (```json ... ```) that contains valid JSON.
+    3. Scan from the first '[' or '{' character.
+    """
+    # 1. Whole string
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, (dict, list)):
+            return obj
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Code fences — last fence first (final agent output is most complete)
+    for fence in reversed(list(re.finditer(r"```(?:json)?\s*([\s\S]+?)\s*```", text))):
+        try:
+            obj = json.loads(fence.group(1))
+            if isinstance(obj, (dict, list)):
+                return obj
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Scan for the first parseable JSON value
+    decoder = json.JSONDecoder()
+    for m in re.finditer(r"[\[{]", text):
+        try:
+            obj, _ = decoder.raw_decode(text, m.start())
+            if isinstance(obj, (dict, list)):
+                return obj
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
 class PlanningService:
 
     async def generate_plan(
@@ -132,50 +170,8 @@ class PlanningService:
         """Run the review crew to verify generated content quality."""
         crew = build_review_crew(storyboard, generated_assets, character_bank)
         result = await asyncio.to_thread(crew.kickoff)
-        obj = self._extract_json(str(result))
+        obj = _extract_json(str(result))
         return obj if isinstance(obj, dict) else {"raw_output": str(result)}
-
-    # -------------------------------------------------------------------------
-    # Internal helpers
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _extract_json(text: str) -> dict | list | None:
-        """Extract the first valid JSON value (dict or list) from a text blob.
-
-        Strategy:
-        1. Whole string as JSON.
-        2. Last code fence (```json ... ```) that contains valid JSON.
-        3. Scan from the first '[' or '{' character.
-        """
-        # 1. Whole string
-        try:
-            obj = json.loads(text)
-            if isinstance(obj, (dict, list)):
-                return obj
-        except json.JSONDecodeError:
-            pass
-
-        # 2. Code fences — last fence first (final agent output is most complete)
-        for fence in reversed(list(re.finditer(r"```(?:json)?\s*([\s\S]+?)\s*```", text))):
-            try:
-                obj = json.loads(fence.group(1))
-                if isinstance(obj, (dict, list)):
-                    return obj
-            except json.JSONDecodeError:
-                pass
-
-        # 3. Scan for the first parseable JSON value
-        decoder = json.JSONDecoder()
-        for m in re.finditer(r"[\[{]", text):
-            try:
-                obj, _ = decoder.raw_decode(text, m.start())
-                if isinstance(obj, (dict, list)):
-                    return obj
-            except json.JSONDecodeError:
-                continue
-
-        return None
 
     def _merge_planning_tasks(self, result) -> dict:
         """Merge outputs of the three planning tasks into one plan dict.
@@ -194,12 +190,12 @@ class PlanningService:
             return getattr(tasks_output[idx], "raw", "") if idx < len(tasks_output) else ""
 
         # ---- Task 0: Screenwriter → character_bank + storyboard ----
-        sw = self._extract_json(_raw(0)) or {}
+        sw = _extract_json(_raw(0)) or {}
         character_bank: dict = sw.get("character_bank", {}) if isinstance(sw, dict) else {}
         storyboard: list = sw.get("storyboard", []) if isinstance(sw, dict) else []
 
         # ---- Task 1: Director → shot objects (list or dict wrapping a list) ----
-        dir_val = self._extract_json(_raw(1))
+        dir_val = _extract_json(_raw(1))
         if isinstance(dir_val, list):
             director_shots = dir_val
         elif isinstance(dir_val, dict):
@@ -238,7 +234,7 @@ class PlanningService:
             storyboard = director_shots
 
         # ---- Task 2: Music Producer → music_plan ----
-        mp = self._extract_json(_raw(2)) or {}
+        mp = _extract_json(_raw(2)) or {}
         if isinstance(mp, dict):
             music_plan: dict = mp.get("music_plan", {})
             # Fallback: if earlier tasks produced nothing, music producer may have the full plan
@@ -251,7 +247,7 @@ class PlanningService:
 
         # ---- Last resort: parse the top-level result string ----
         if not (character_bank or storyboard or music_plan):
-            fallback = self._extract_json(str(result))
+            fallback = _extract_json(str(result))
             if isinstance(fallback, dict):
                 return fallback
             return {"raw_output": str(result)}

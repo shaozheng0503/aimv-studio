@@ -12,9 +12,9 @@ class CharacterProfile:
     name: str
     role: str = "main"  # main / supporting / extra
     reference_images: list[str] = field(default_factory=list)
-    appearance: dict = field(default_factory=dict)
-    # e.g. {"face": "oval", "hair": "long black", "skin": "fair", "age": "20s"}
-    outfit: dict = field(default_factory=dict)
+    appearance: dict | str = field(default_factory=dict)
+    # e.g. {"face": "oval", "hair": "long black"} or prose: "Oval face with long black hair"
+    outfit: dict | str = field(default_factory=dict)
     # e.g. {"top": "white crop top", "bottom": "denim shorts", "accessories": "silver earrings"}
     style_tags: list[str] = field(default_factory=list)
     # e.g. ["kpop", "practice_room", "dance"]

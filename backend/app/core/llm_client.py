@@ -18,6 +18,10 @@ from app.config import get_settings
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
+# Gemini API base — shared with verifier.py
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_BASE_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+
 
 def _strip_think(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from model output (no-op for non-thinking models)."""
@@ -140,28 +144,42 @@ class LLMClient:
 
     # ── OpenAI-compatible backend (Qwen + OpenAI) ────────────────────────────
 
+    def _compat_request(
+        self,
+        messages: list[dict],
+        *,
+        system: str | None = None,
+        reasoning: bool = False,
+        max_tokens: int = 2000,
+        stream: bool = False,
+        tools: list[dict] | None = None,
+    ) -> tuple[str, dict, dict]:
+        """Build (url, headers, json_body) for an OpenAI-compatible request."""
+        base, model, headers, extra = self._compat_params(reasoning)
+        body: dict = {
+            "model": model,
+            "messages": [{"role": "system", "content": system or SYSTEM_PROMPT}] + messages,
+            "max_tokens": max_tokens,
+            **extra,
+        }
+        if stream:
+            body["stream"] = True
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+        return f"{base.rstrip('/')}/v1/chat/completions", headers, body
+
     async def _call_compat(
         self,
         messages: list[dict],
         system: str | None = None,
         reasoning: bool = False,
     ) -> str:
-        base, model, headers, extra = self._compat_params(reasoning)
-        # Reasoning model has a 4096-token context window; cap output accordingly
         max_tokens = 800 if (reasoning and self.settings.qwen_reasoning_base_url) else 2000
-        sys = system or SYSTEM_PROMPT
-        body = {
-            "model": model,
-            "messages": [{"role": "system", "content": sys}] + messages,
-            "max_tokens": max_tokens,
-            **extra,
-        }
-        resp = await _get_http_client().post(
-            f"{base.rstrip('/')}/v1/chat/completions",
-            headers=headers,
-            json=body,
-            timeout=60,
+        url, headers, body = self._compat_request(
+            messages, system=system, reasoning=reasoning, max_tokens=max_tokens,
         )
+        resp = await _get_http_client().post(url, headers=headers, json=body, timeout=60)
         resp.raise_for_status()
         return _strip_think(resp.json()["choices"][0]["message"]["content"])
 
@@ -171,22 +189,12 @@ class LLMClient:
         system: str | None = None,
         reasoning: bool = False,
     ) -> AsyncIterator[str]:
-        base, model, headers, extra = self._compat_params(reasoning)
-        sys = system or SYSTEM_PROMPT
-        body = {
-            "model": model,
-            "messages": [{"role": "system", "content": sys}] + messages,
-            "max_tokens": 2000,
-            "stream": True,
-            **extra,
-        }
+        url, headers, body = self._compat_request(
+            messages, system=system, reasoning=reasoning, stream=True,
+        )
         in_think = False
         async with _get_http_client().stream(
-            "POST",
-            f"{base.rstrip('/')}/v1/chat/completions",
-            headers=headers,
-            json=body,
-            timeout=120,
+            "POST", url, headers=headers, json=body, timeout=120,
         ) as resp:
             buffer = ""
             async for line in resp.aiter_lines():
@@ -225,22 +233,11 @@ class LLMClient:
         tools: list[dict],
         reasoning: bool = False,
     ) -> tuple[dict | None, str]:
-        base, model, headers, extra = self._compat_params(reasoning)
         max_tokens = 600 if (reasoning and self.settings.qwen_reasoning_base_url) else 1000
-        body = {
-            "model": model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "max_tokens": max_tokens,
-            **extra,
-        }
-        resp = await _get_http_client().post(
-            f"{base.rstrip('/')}/v1/chat/completions",
-            headers=headers,
-            json=body,
-            timeout=30,
+        url, headers, body = self._compat_request(
+            messages, reasoning=reasoning, max_tokens=max_tokens, tools=tools,
         )
+        resp = await _get_http_client().post(url, headers=headers, json=body, timeout=30)
         resp.raise_for_status()
         message = resp.json().get("choices", [{}])[0].get("message", {})
         content = _strip_think(message.get("content") or "")
@@ -272,7 +269,7 @@ class LLMClient:
         sys = system or SYSTEM_PROMPT
         headers, params = self._gemini_auth()
         resp = await _get_http_client().post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            f"{GEMINI_BASE_URL}:generateContent",
             headers=headers,
             params=params,
             json={"system_instruction": {"parts": [{"text": sys}]}, "contents": self._to_gemini_format(messages)},
@@ -286,7 +283,7 @@ class LLMClient:
         headers, params = self._gemini_auth()
         async with _get_http_client().stream(
             "POST",
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
+            f"{GEMINI_BASE_URL}:streamGenerateContent",
             headers=headers,
             params={**params, "alt": "sse"},
             json={"system_instruction": {"parts": [{"text": sys}]}, "contents": self._to_gemini_format(messages)},
@@ -323,7 +320,7 @@ class LLMClient:
         ]
         headers, params = self._gemini_auth()
         resp = await _get_http_client().post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            f"{GEMINI_BASE_URL}:generateContent",
             headers=headers,
             params=params,
             json={
