@@ -13,7 +13,7 @@ from app.adapters.suno import SunoAdapter
 from app.adapters.lyria import LyriaAdapter
 from app.adapters.wan_video import WanVideoAdapter
 from app.adapters.seedance import SeedanceAdapter
-from app.adapters.veo import VeoAdapter, Veo31Adapter, Veo30Adapter, Veo20Adapter
+from app.adapters.veo import VeoAdapter, Veo31Adapter, Veo31FastAdapter, Veo30Adapter, Veo20Adapter
 from app.adapters.grok_video import GrokVideoAdapter
 from app.adapters.google_image import GeminiImageAdapter, Imagen3Adapter, Imagen3FastAdapter
 from app.core.character_bank import CharacterBank
@@ -27,11 +27,12 @@ ADAPTER_MAP: dict[str, type[BaseModelAdapter]] = {
     "lyria": LyriaAdapter,
     "wan2.2": WanVideoAdapter,
     "seedance": SeedanceAdapter,
-    # Veo: auto-cascade (newest → GA) or pinned to a specific tier
-    "veo": VeoAdapter,          # auto: 3.1 → 3.0-preview → 2.0
-    "veo-3.1": Veo31Adapter,    # pin: Veo 3.1 only
-    "veo-3.0": Veo30Adapter,    # pin: Veo 3.0 preview only
-    "veo-2.0": Veo20Adapter,    # pin: Veo 2.0 GA only
+    # Veo: auto-cascade (newest → oldest) or pinned to a specific model
+    "veo":          VeoAdapter,         # auto: 3.1 → 3.1-fast → 3.0 → 2.0
+    "veo-3.1":      Veo31Adapter,       # pin: veo-3.1-generate-001
+    "veo-3.1-fast": Veo31FastAdapter,   # pin: veo-3.1-fast-generate-001
+    "veo-3.0":      Veo30Adapter,       # pin: veo-3.0-generate-001
+    "veo-2.0":      Veo20Adapter,       # pin: veo-2.0-generate-001
     "grok": GrokVideoAdapter,
     # Google image models
     "gemini-image": GeminiImageAdapter,   # auto: Gemini 2.0 Flash → Imagen 3.0 fallback
@@ -71,18 +72,20 @@ _MODEL_NAME_ALIASES: dict[str, str] = {
     "imagen 3 fast": "imagen-3-fast",
     "imagen3fast": "imagen-3-fast",
     "gemini flash image": "gemini-image",
-    # Veo display-name → canonical key
-    "veo 3.1": "veo-3.1",
-    "veo3.1": "veo-3.1",
-    "veo 3.0": "veo-3.0",
-    "veo3.0": "veo-3.0",
-    "veo 3.0 (google)": "veo-3.1",  # frontend display name → latest
-    "veo 3": "veo-3.1",
-    "veo3": "veo-3.1",
-    "veo 2.0": "veo-2.0",
-    "veo2.0": "veo-2.0",
-    "veo 2": "veo-2.0",
-    "veo2": "veo-2.0",
+    # Veo display-name / frontend value → canonical adapter key
+    "veo 3.1":           "veo-3.1",
+    "veo3.1":            "veo-3.1",
+    "veo 3.1 fast":      "veo-3.1-fast",
+    "veo3.1fast":        "veo-3.1-fast",
+    "veo 3.1-fast":      "veo-3.1-fast",
+    "veo 3.0":           "veo-3.0",
+    "veo3.0":            "veo-3.0",
+    "veo 3":             "veo-3.1",
+    "veo3":              "veo-3.1",
+    "veo 2.0":           "veo-2.0",
+    "veo2.0":            "veo-2.0",
+    "veo 2":             "veo-2.0",
+    "veo2":              "veo-2.0",
 }
 
 

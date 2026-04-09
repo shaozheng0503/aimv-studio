@@ -407,14 +407,15 @@ function updateNodeData(nodeId: string, updates: Record<string, any>) {
 }
 
 // All implemented video models. Keys must match ADAPTER_MAP in generation_service.py.
-const VIDEO_MODELS = ['veo-3.1', 'veo-3.0', 'veo-2.0', 'seedance', 'grok', 'wan2.2']
+const VIDEO_MODELS = ['veo-3.1', 'veo-3.1-fast', 'veo-3.0', 'veo-2.0', 'seedance', 'grok', 'wan2.2']
 const VIDEO_MODEL_LABELS: Record<string, string> = {
-  'veo-3.1':  'Veo 3.1 (Google)',
-  'veo-3.0':  'Veo 3.0 Preview',
-  'veo-2.0':  'Veo 2.0 GA',
-  'seedance': 'Seedance 2.0',
-  'grok':     'Grok Video',
-  'wan2.2':   'Wan 2.2 (本地)',
+  'veo-3.1':      'Veo 3.1',
+  'veo-3.1-fast': 'Veo 3.1 Fast',
+  'veo-3.0':      'Veo 3.0',
+  'veo-2.0':      'Veo 2.0 GA',
+  'seedance':     'Seedance 2.0',
+  'grok':         'Grok Video',
+  'wan2.2':       'Wan 2.2 (本地)',
 }
 
 function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
@@ -1254,7 +1255,7 @@ onUnmounted(() => {
                 :value="(selectedNode.data.duration as number)"
                 @change="updateNodeData(selectedNodeId!, { duration: Number(($event.target as HTMLSelectElement).value) })"
               >
-                <option :value="5">5s</option>
+                <option :value="4">4s</option>
                 <option :value="6">6s</option>
                 <option :value="8">8s</option>
               </select>

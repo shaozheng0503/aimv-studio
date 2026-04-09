@@ -387,7 +387,8 @@ function taskTypeLabel(type: string): string {
           <el-option :label="t('autoRouted')" value="" />
           <el-option-group label="Google Veo">
             <el-option label="Veo 3.1（最新）" value="veo-3.1" />
-            <el-option label="Veo 3.0 Preview" value="veo-3.0" />
+            <el-option label="Veo 3.1 Fast（快速）" value="veo-3.1-fast" />
+            <el-option label="Veo 3.0" value="veo-3.0" />
             <el-option label="Veo 2.0 GA" value="veo-2.0" />
           </el-option-group>
           <el-option-group label="其他">
