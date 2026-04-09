@@ -1248,14 +1248,16 @@ onUnmounted(() => {
               </select>
             </div>
             <div class="panel-field">
-              <label>&#x65F6;&#x957F; (s)</label>
-              <input
-                type="number"
-                class="panel-input-sm"
+              <label>&#x65F6;&#x957F;</label>
+              <select
+                class="panel-select"
                 :value="(selectedNode.data.duration as number)"
-                min="3" max="30" step="1"
-                @change="updateNodeData(selectedNodeId!, { duration: Number(($event.target as HTMLInputElement).value) })"
-              />
+                @change="updateNodeData(selectedNodeId!, { duration: Number(($event.target as HTMLSelectElement).value) })"
+              >
+                <option :value="5">5s</option>
+                <option :value="6">6s</option>
+                <option :value="8">8s</option>
+              </select>
             </div>
           </div>
 
