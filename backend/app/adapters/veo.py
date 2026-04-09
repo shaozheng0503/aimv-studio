@@ -1,9 +1,10 @@
 """
 Veo video generation adapter.
 
-Supports two model tiers (tried in order):
-  veo-3.0-generate-preview  — latest preview (may require allowlist)
-  veo-2.0-generate-001      — GA fallback
+Supported Veo models (tried newest-first when no specific model is requested):
+  veo-3.1                    — latest stable  (pinnable via params["model"])
+  veo-3.0-generate-preview   — 3.0 preview
+  veo-2.0-generate-001       — 2.0 GA stable
 
 API flow (generativelanguage.googleapis.com):
   POST  /v1beta/models/{model}:generateVideo  → LRO name
@@ -27,11 +28,18 @@ from app.config import get_settings
 
 _BASE = "https://generativelanguage.googleapis.com"
 
-# Try the newest model first; fall back to GA version on 404/403
-_VIDEO_MODELS = [
-    "veo-3.0-generate-preview",
-    "veo-2.0-generate-001",
-]
+# All known Veo model IDs, newest first.
+# The adapter tries each in order and stops at the first success.
+# On 400/403/404 it falls through to the next; other HTTP errors bubble up.
+_ALL_VEO_MODELS: dict[str, str] = {
+    # key used in ADAPTER_MAP / frontend  →  actual API model ID
+    "veo-3.1":              "veo-3.1",
+    "veo-3.0-preview":      "veo-3.0-generate-preview",
+    "veo-2.0":              "veo-2.0-generate-001",
+}
+
+# Default cascade when no specific model is requested
+_DEFAULT_CASCADE = list(_ALL_VEO_MODELS.values())
 
 
 def _make_headers(settings) -> dict[str, str]:
@@ -141,9 +149,12 @@ class VeoAdapter(BaseModelAdapter):
         video_url = ""
         used_model = ""
 
-        # Try models in preference order
+        # Allow caller to pin a specific model via params["model"]
+        requested = p.get("model", "")
+        cascade = [_ALL_VEO_MODELS.get(requested, requested)] if requested else _DEFAULT_CASCADE
+
         last_error: Exception | None = None
-        for model in _VIDEO_MODELS:
+        for model in cascade:
             try:
                 video_url = await _try_generate_video(
                     prompt, model, headers, duration, aspect, image_b64
@@ -153,7 +164,7 @@ class VeoAdapter(BaseModelAdapter):
             except httpx.HTTPStatusError as e:
                 if e.response.status_code in (400, 403, 404):
                     last_error = e
-                    continue  # try next model
+                    continue  # try next model tier
                 raise
         else:
             raise RuntimeError(
@@ -181,3 +192,45 @@ class VeoAdapter(BaseModelAdapter):
             file_url=file_url,
             metadata={"model": used_model, "original_url": video_url},
         )
+
+
+# ── Pinnable per-version subclasses ──────────────────────────────────────────
+# These let the frontend/backend select an exact Veo tier without auto-cascade.
+
+class Veo31Adapter(VeoAdapter):
+    """Pin to veo-3.1 only (no fallback)."""
+    name = "veo-3.1"
+
+    async def generate(self, request: GenerateRequest) -> GenerateResult:
+        request = GenerateRequest(
+            prompt=request.prompt,
+            params={**(request.params or {}), "model": "veo-3.1"},
+            reference_images=request.reference_images,
+        )
+        return await super().generate(request)
+
+
+class Veo30Adapter(VeoAdapter):
+    """Pin to veo-3.0-generate-preview only (no fallback)."""
+    name = "veo-3.0"
+
+    async def generate(self, request: GenerateRequest) -> GenerateResult:
+        request = GenerateRequest(
+            prompt=request.prompt,
+            params={**(request.params or {}), "model": "veo-3.0-preview"},
+            reference_images=request.reference_images,
+        )
+        return await super().generate(request)
+
+
+class Veo20Adapter(VeoAdapter):
+    """Pin to veo-2.0-generate-001 (GA stable, no fallback)."""
+    name = "veo-2.0"
+
+    async def generate(self, request: GenerateRequest) -> GenerateResult:
+        request = GenerateRequest(
+            prompt=request.prompt,
+            params={**(request.params or {}), "model": "veo-2.0"},
+            reference_images=request.reference_images,
+        )
+        return await super().generate(request)

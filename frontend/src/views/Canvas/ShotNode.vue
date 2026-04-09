@@ -30,10 +30,13 @@ function fmt(s: number) {
 }
 
 const MODEL_LABELS: Record<string, string> = {
-  'veo': 'Veo 3',
+  'veo':      'Veo',
+  'veo-3.1':  'Veo 3.1',
+  'veo-3.0':  'Veo 3.0',
+  'veo-2.0':  'Veo 2.0',
   'seedance': 'Seedance',
-  'grok': 'Grok',
-  'wan2.2': 'Wan 2.2',
+  'grok':     'Grok',
+  'wan2.2':   'Wan 2.2',
 }
 
 function modelLabel(model: string): string {

@@ -13,9 +13,9 @@ from app.adapters.suno import SunoAdapter
 from app.adapters.lyria import LyriaAdapter
 from app.adapters.wan_video import WanVideoAdapter
 from app.adapters.seedance import SeedanceAdapter
-from app.adapters.veo import VeoAdapter
+from app.adapters.veo import VeoAdapter, Veo31Adapter, Veo30Adapter, Veo20Adapter
 from app.adapters.grok_video import GrokVideoAdapter
-from app.adapters.google_image import GeminiImageAdapter
+from app.adapters.google_image import GeminiImageAdapter, Imagen3Adapter, Imagen3FastAdapter
 from app.core.character_bank import CharacterBank
 from app.core.verifier import VerifierAgent, VerifyResult, MAX_RETRIES
 
@@ -27,11 +27,16 @@ ADAPTER_MAP: dict[str, type[BaseModelAdapter]] = {
     "lyria": LyriaAdapter,
     "wan2.2": WanVideoAdapter,
     "seedance": SeedanceAdapter,
-    "veo": VeoAdapter,
+    # Veo: auto-cascade (newest → GA) or pinned to a specific tier
+    "veo": VeoAdapter,          # auto: 3.1 → 3.0-preview → 2.0
+    "veo-3.1": Veo31Adapter,    # pin: Veo 3.1 only
+    "veo-3.0": Veo30Adapter,    # pin: Veo 3.0 preview only
+    "veo-2.0": Veo20Adapter,    # pin: Veo 2.0 GA only
     "grok": GrokVideoAdapter,
-    "gemini-image": GeminiImageAdapter,
-    # Alias: "imagen-3" routes to the same Google image adapter (uses Imagen 3.0 fallback)
-    "imagen-3": GeminiImageAdapter,
+    # Google image models
+    "gemini-image": GeminiImageAdapter,   # auto: Gemini 2.0 Flash → Imagen 3.0 fallback
+    "imagen-3": Imagen3Adapter,           # pin: Imagen 3.0 on Vertex AI
+    "imagen-3-fast": Imagen3FastAdapter,  # pin: Imagen 3.0 Fast (lower latency)
 }
 
 # Maps human-readable / frontend display names → canonical adapter keys.
@@ -59,13 +64,25 @@ _MODEL_NAME_ALIASES: dict[str, str] = {
     "z_image": "z-image",
     "gemini_image": "gemini-image",
     "gemini image": "gemini-image",
+    # Google image aliases
     "imagen 3": "imagen-3",
     "imagen3": "imagen-3",
     "imagen-3.0": "imagen-3",
-    "veo 3": "veo",
-    "veo 2": "veo",
-    "veo3": "veo",
-    "veo2": "veo",
+    "imagen 3 fast": "imagen-3-fast",
+    "imagen3fast": "imagen-3-fast",
+    "gemini flash image": "gemini-image",
+    # Veo display-name → canonical key
+    "veo 3.1": "veo-3.1",
+    "veo3.1": "veo-3.1",
+    "veo 3.0": "veo-3.0",
+    "veo3.0": "veo-3.0",
+    "veo 3.0 (google)": "veo-3.1",  # frontend display name → latest
+    "veo 3": "veo-3.1",
+    "veo3": "veo-3.1",
+    "veo 2.0": "veo-2.0",
+    "veo2.0": "veo-2.0",
+    "veo 2": "veo-2.0",
+    "veo2": "veo-2.0",
 }
 
 

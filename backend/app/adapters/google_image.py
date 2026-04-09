@@ -1,11 +1,12 @@
 """
 Google Image Generation adapter.
 
-Tries two backends in order:
-  1. Gemini 2.0 Flash  (generativelanguage.googleapis.com)
-     — fastest, free tier available, returns inline base64
-  2. Imagen 3.0        (Vertex AI, us-central1)
-     — fallback when Gemini image gen is not enabled on the project
+Supported image models (newest first):
+  gemini-2.0-flash-preview-image-generation  — Gemini Flash image gen (fastest)
+  imagen-3.0-generate-002                    — Imagen 3.0 via Vertex AI (higher quality)
+
+Auto-cascade: tries Gemini Flash first; on 400/403/404 falls back to Imagen 3.0.
+Each model can also be called directly via the pinned adapter subclasses.
 
 Auth: google_auth.get_auth_headers() — handles both file-path and inline JSON SA.
 """
@@ -22,8 +23,15 @@ from app.adapters.base import BaseModelAdapter, GenerateRequest, GenerateResult
 from app.adapters.google_auth import get_auth_headers, get_token_and_project
 from app.config import get_settings
 
+# Gemini image generation model (generativelanguage.googleapis.com)
 _GEMINI_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
-_IMAGEN_MODEL = "imagen-3.0-generate-002"
+
+# Imagen models on Vertex AI (us-central1)
+_IMAGEN_MODELS = {
+    "imagen-3.0": "imagen-3.0-generate-002",   # current GA
+    "imagen-3.0-fast": "imagen-3.0-fast-generate-001",  # fast variant
+}
+_IMAGEN_DEFAULT = _IMAGEN_MODELS["imagen-3.0"]
 
 _GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -51,12 +59,18 @@ def _call_gemini_image(prompt: str, headers: dict, aspect: str = "16:9") -> byte
     raise RuntimeError(f"No image in Gemini response: {data}")
 
 
-def _call_imagen(prompt: str, headers: dict, project_id: str, aspect: str = "16:9") -> bytes:
-    """Call Imagen 3.0 on Vertex AI. Returns raw PNG bytes."""
+def _call_imagen(
+    prompt: str,
+    headers: dict,
+    project_id: str,
+    aspect: str = "16:9",
+    model: str = "",
+) -> bytes:
+    """Call Imagen on Vertex AI. Returns raw PNG bytes."""
+    api_model = _IMAGEN_MODELS.get(model, model) if model else _IMAGEN_DEFAULT
     url = (
         f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}"
-        "/locations/us-central1/publishers/google/models/"
-        f"{_IMAGEN_MODEL}:predict"
+        f"/locations/us-central1/publishers/google/models/{api_model}:predict"
     )
     resp = httpx.post(
         url,
@@ -88,15 +102,23 @@ def _generate_sync(request: GenerateRequest, settings) -> GenerateResult:
     img_bytes: bytes | None = None
     model_used = _GEMINI_IMAGE_MODEL
 
-    try:
-        img_bytes = _call_gemini_image(prompt, headers, aspect)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code in (400, 403, 404):
-            # API not enabled or model unavailable → fallback to Imagen 3.0
-            model_used = _IMAGEN_MODEL
-            img_bytes = _call_imagen(prompt, headers, project_id, aspect)
-        else:
-            raise
+    # Which image backend to use (default: Gemini Flash → Imagen fallback)
+    pinned = p.get("image_model", "")
+
+    if pinned.startswith("imagen"):
+        # Caller explicitly requested Imagen — skip Gemini
+        model_used = _IMAGEN_MODELS.get(pinned, _IMAGEN_DEFAULT)
+        img_bytes = _call_imagen(prompt, headers, project_id, aspect, pinned)
+    else:
+        try:
+            img_bytes = _call_gemini_image(prompt, headers, aspect)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 403, 404):
+                # Gemini image gen not enabled on this project → fall back to Imagen 3.0
+                model_used = _IMAGEN_DEFAULT
+                img_bytes = _call_imagen(prompt, headers, project_id, aspect)
+            else:
+                raise
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         tmp.write(img_bytes)
@@ -113,6 +135,7 @@ def _generate_sync(request: GenerateRequest, settings) -> GenerateResult:
 
 
 class GeminiImageAdapter(BaseModelAdapter):
+    """Auto-cascade: Gemini 2.0 Flash image gen → Imagen 3.0 fallback."""
     name = "gemini-image"
 
     async def generate(self, request: GenerateRequest) -> GenerateResult:
@@ -120,3 +143,29 @@ class GeminiImageAdapter(BaseModelAdapter):
         loop = asyncio.get_running_loop()
         with ThreadPoolExecutor(max_workers=1) as pool:
             return await loop.run_in_executor(pool, _generate_sync, request, settings)
+
+
+class Imagen3Adapter(GeminiImageAdapter):
+    """Pin directly to Imagen 3.0 on Vertex AI (skips Gemini Flash)."""
+    name = "imagen-3"
+
+    async def generate(self, request: GenerateRequest) -> GenerateResult:
+        req = GenerateRequest(
+            prompt=request.prompt,
+            params={**(request.params or {}), "image_model": "imagen-3.0"},
+            reference_images=request.reference_images,
+        )
+        return await super().generate(req)
+
+
+class Imagen3FastAdapter(GeminiImageAdapter):
+    """Pin to Imagen 3.0 Fast (lower latency, slightly lower quality)."""
+    name = "imagen-3-fast"
+
+    async def generate(self, request: GenerateRequest) -> GenerateResult:
+        req = GenerateRequest(
+            prompt=request.prompt,
+            params={**(request.params or {}), "image_model": "imagen-3.0-fast"},
+            reference_images=request.reference_images,
+        )
+        return await super().generate(req)

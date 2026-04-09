@@ -406,13 +406,15 @@ function updateNodeData(nodeId: string, updates: Record<string, any>) {
   )
 }
 
-// Only list models that have a backend adapter implemented.
-const VIDEO_MODELS = ['veo', 'seedance', 'grok', 'wan2.2']
+// All implemented video models. Keys must match ADAPTER_MAP in generation_service.py.
+const VIDEO_MODELS = ['veo-3.1', 'veo-3.0', 'veo-2.0', 'seedance', 'grok', 'wan2.2']
 const VIDEO_MODEL_LABELS: Record<string, string> = {
-  'veo': 'Veo 3.0 (Google)',
+  'veo-3.1':  'Veo 3.1 (Google)',
+  'veo-3.0':  'Veo 3.0 Preview',
+  'veo-2.0':  'Veo 2.0 GA',
   'seedance': 'Seedance 2.0',
-  'grok': 'Grok Video',
-  'wan2.2': 'Wan 2.2 (本地)',
+  'grok':     'Grok Video',
+  'wan2.2':   'Wan 2.2 (本地)',
 }
 
 function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
