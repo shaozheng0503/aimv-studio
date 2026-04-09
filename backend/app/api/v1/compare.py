@@ -1,18 +1,22 @@
 """Compare API — Generate the same shot with multiple models for A/B comparison."""
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import ok
 from app.api.v1.auth import get_current_user
+from app.api.v1.deps import get_owned_project
 from app.models.user import User
 from app.models.project import Project, Task
 from app.schemas.project import TaskResponse
+from app.workers.generation_tasks import run_generation_task
 
 router = APIRouter(tags=["compare"])
-
 
 _VALID_COMPARE_TYPES = {"video", "music", "image"}
 
@@ -37,19 +41,13 @@ async def create_comparison(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit the same prompt to multiple models for A/B comparison."""
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await get_owned_project(project_id, user, db)
 
     if req.type not in _VALID_COMPARE_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid type. Choose from: {', '.join(_VALID_COMPARE_TYPES)}")
     if len(req.models) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 models to compare")
 
-    import uuid
     group_id = uuid.uuid4().hex[:12]
 
     tasks = []
@@ -73,7 +71,6 @@ async def create_comparison(
     for task in tasks:
         await db.refresh(task)
 
-    from app.workers.generation_tasks import run_generation_task
     for task in tasks:
         run_generation_task.delay(task.id)
 
@@ -88,7 +85,6 @@ async def get_comparison(
     db: AsyncSession = Depends(get_db),
 ):
     """Get results for a comparison group."""
-    from sqlalchemy import cast, String
     result = await db.execute(
         select(Task)
         .join(Project)
@@ -100,7 +96,7 @@ async def get_comparison(
     )
     group_tasks = result.scalars().all()
 
-    return {
+    return ok(data={
         "group_id": group_id,
         "tasks": [
             {
@@ -112,7 +108,7 @@ async def get_comparison(
             }
             for t in group_tasks
         ],
-    }
+    })
 
 
 @router.post("/projects/{project_id}/compare/{group_id}/pick/{task_id}")
@@ -133,10 +129,9 @@ async def pick_winner(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Mark this task's result as the chosen one
     params = task.params or {}
     params["compare_winner"] = True
     task.params = params
     await db.commit()
 
-    return {"ok": True, "picked_task_id": task_id, "model": task.model_name}
+    return ok(data={"picked_task_id": task_id, "model": task.model_name})

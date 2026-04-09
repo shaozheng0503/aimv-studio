@@ -5,6 +5,9 @@ import tempfile
 from app.workers.celery_app import celery_app
 from app.workers.generation_tasks import _get_sync_session  # reuse shared engine
 
+# Retry backoff: 60s, 120s between attempts (max_retries=2 → up to 3 total runs)
+_RETRY_COUNTDOWN_BASE = 60
+
 
 @celery_app.task(bind=True, max_retries=2)
 def run_export_task(self, task_id: int):
@@ -15,7 +18,6 @@ def run_export_task(self, task_id: int):
 
     db = _get_sync_session()
     task = None
-    tmp_files: list[str] = []  # track all temp files for cleanup
 
     try:
         task = db.query(Task).filter(Task.id == task_id).one()
@@ -26,41 +28,31 @@ def run_export_task(self, task_id: int):
         params = task.params or {}
         source = params["source_url"]
         platform = params["platform"]
-        _fd, output_path = tempfile.mkstemp(suffix=".mp4", prefix=f"export_{task.project_id}_{platform}_")
-        os.close(_fd)
-        tmp_files.append(output_path)
-
         compose = ComposeService()
 
-        # Step 1: Re-encode for platform
-        compose.export_for_platform(source, platform, output_path)
+        with tempfile.TemporaryDirectory(prefix=f"export_{task.project_id}_{platform}_") as tmp_dir:
+            # Step 1: Re-encode for platform
+            current = os.path.join(tmp_dir, "platform.mp4")
+            compose.export_for_platform(source, platform, current)
 
-        # Step 2: Burn subtitles if lyrics SRT is available
-        if params.get("srt_content"):
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".srt", encoding="utf-8", delete=False
-            ) as srt_f:
-                srt_f.write(params["srt_content"])
-                srt_file = srt_f.name
-            tmp_files.append(srt_file)
-            _fd_sub, sub_path = tempfile.mkstemp(suffix=".mp4", prefix=f"export_{task.project_id}_sub_")
-            os.close(_fd_sub)
-            tmp_files.append(sub_path)
-            compose.add_subtitles(output_path, srt_file, sub_path)
-            output_path = sub_path
+            # Step 2: Burn subtitles if lyrics SRT is available
+            if params.get("srt_content"):
+                srt_file = os.path.join(tmp_dir, "subs.srt")
+                with open(srt_file, "w", encoding="utf-8") as f:
+                    f.write(params["srt_content"])
+                subtitled = os.path.join(tmp_dir, "subtitled.mp4")
+                compose.add_subtitles(current, srt_file, subtitled)
+                current = subtitled
 
-        # Step 3: Add watermark if requested
-        if params.get("add_watermark"):
-            _fd_wm, wm_path = tempfile.mkstemp(suffix=".mp4", prefix=f"export_{task.project_id}_wm_")
-            os.close(_fd_wm)
-            tmp_files.append(wm_path)
-            compose.add_watermark(output_path, params.get("watermark_text", "AIMV"), wm_path)
-            output_path = wm_path
+            # Step 3: Add watermark if requested
+            if params.get("add_watermark"):
+                watermarked = os.path.join(tmp_dir, "watermarked.mp4")
+                compose.add_watermark(current, params.get("watermark_text", "AIMV"), watermarked)
+                current = watermarked
 
-        # Step 4: Upload to storage
-        file_url = upload_file(output_path, "video/mp4")
+            # Step 4: Upload to storage (must happen inside the context manager)
+            file_url = upload_file(current, "video/mp4")
 
-        # Store result
         task.status = "completed"
         task.result = {"file_url": file_url, "platform": platform}
         media = Media(
@@ -76,17 +68,23 @@ def run_export_task(self, task_id: int):
 
     except Exception as e:
         if task is not None:
-            task.status = "failed"
+            task.retry_count = (task.retry_count or 0) + 1
             task.error_message = str(e)
-            db.commit()
-            notify_progress(task.project_id, task.id, "export", "failed", {"error": str(e)})
-        raise self.retry(exc=e)
+
+            is_final_attempt = self.request.retries >= self.max_retries
+            if is_final_attempt:
+                # No more retries — mark permanently failed
+                task.status = "failed"
+                db.commit()
+                notify_progress(
+                    task.project_id, task.id, "export", "failed", {"error": str(e)}
+                )
+            else:
+                # Will retry — persist error_message + retry_count without flipping to "failed"
+                db.commit()
+
+        countdown = _RETRY_COUNTDOWN_BASE * (self.request.retries + 1)
+        raise self.retry(exc=e, countdown=countdown)
+
     finally:
         db.close()
-        # Clean up all temporary files
-        for path in tmp_files:
-            try:
-                if path and os.path.exists(path):
-                    os.unlink(path)
-            except OSError:
-                pass

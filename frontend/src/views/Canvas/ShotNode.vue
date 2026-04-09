@@ -36,7 +36,6 @@ function fmt(s: number) {
 
     <!-- thumbnail -->
     <div class="thumb" :style="data.videoUrl ? {} : { background: data.gradient }">
-      <!-- actual video preview when done -->
       <video
         v-if="data.videoUrl && data.status === 'done'"
         :src="data.videoUrl"
@@ -49,16 +48,21 @@ function fmt(s: number) {
         @mouseleave="($event.target as HTMLVideoElement).pause()"
       />
 
+      <!-- subtle vignette overlay -->
+      <div class="thumb-vignette" />
+
       <span class="idx">#{{ String(data.index).padStart(2,'0') }}</span>
 
-      <div v-if="data.status === 'generating'" class="spin-ring" />
-      <div v-else-if="data.status === 'pending'" class="pending-plus">＋</div>
-      <div v-else-if="data.status === 'failed'" class="fail-badge">!</div>
+      <!-- status overlays -->
+      <div v-if="data.status === 'generating'" class="gen-overlay">
+        <div class="gen-ring" />
+      </div>
+      <div v-else-if="data.status === 'pending'" class="pending-icon">＋</div>
+      <div v-else-if="data.status === 'failed'" class="fail-icon">!</div>
 
       <span v-if="data.segment" class="seg-badge">{{ data.segment }}</span>
       <span class="pip" :class="data.status" />
 
-      <!-- quick-generate button (visible on hover, hidden when generating) -->
       <button
         v-if="data.status !== 'generating'"
         class="quick-gen-btn"
@@ -71,7 +75,7 @@ function fmt(s: number) {
     <div class="body">
       <p class="prompt">{{ data.prompt }}</p>
       <div class="tags">
-        <span class="tag">{{ data.model }}</span>
+        <span class="tag model-tag">{{ data.model }}</span>
         <span class="tag">{{ data.duration }}s</span>
         <span v-if="data.timeAnchor !== null" class="tag anchor">⏱ {{ fmt(data.timeAnchor!) }}</span>
       </div>
@@ -83,101 +87,150 @@ function fmt(s: number) {
 
 <style scoped>
 .shot-node {
-  width: 200px; border-radius: 10px;
-  border: 1.5px solid rgba(255,255,255,.1);
-  background: #16161e; overflow: hidden; cursor: pointer;
-  transition: border-color .2s, box-shadow .2s;
+  width: 204px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(14,14,22,.92);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .2s ease, box-shadow .2s ease, transform .1s ease;
   font-family: "Inter", system-ui, sans-serif;
 }
-.shot-node:hover, .shot-node.selected {
-  border-color: #8d5cff;
-  box-shadow: 0 0 18px rgba(141,92,255,.35);
+.shot-node:hover {
+  border-color: rgba(255,255,255,.22);
+  box-shadow: 0 4px 24px rgba(0,0,0,.6), inset 0 0 0 0.5px rgba(255,255,255,.06);
 }
-.shot-node.s-generating { animation: glow 2s ease-in-out infinite; }
-.shot-node.s-failed { border-color: rgba(248,113,113,.45); }
-@keyframes glow {
-  0%,100% { box-shadow: 0 0 8px rgba(141,92,255,.2); }
-  50%      { box-shadow: 0 0 22px rgba(141,92,255,.55); }
+.shot-node.selected {
+  border-color: rgba(141,92,255,.6);
+  box-shadow: 0 2px 20px rgba(0,0,0,.5), inset 0 0 0 0.5px rgba(141,92,255,.2);
+}
+.shot-node:active { transform: scale(0.98); }
+
+/* generating: top border shimmer instead of glow */
+.shot-node.s-generating {
+  border-color: rgba(141,92,255,.4);
+  animation: border-pulse 2.4s ease-in-out infinite;
+}
+.shot-node.s-failed { border-color: rgba(248,113,113,.35); }
+@keyframes border-pulse {
+  0%,100% { border-color: rgba(141,92,255,.25); }
+  50%      { border-color: rgba(141,92,255,.55); }
 }
 
 /* thumbnail */
 .thumb {
-  height: 100px; position: relative; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
+  height: 104px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #0d0d18;
 }
 .thumb-video {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; opacity: .9;
+  object-fit: cover; opacity: .92;
+}
+/* subtle bottom vignette on thumbnail */
+.thumb-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,.45) 100%);
+  z-index: 1;
 }
 .idx {
-  position: absolute; top: 6px; left: 8px;
-  font-size: 10px; font-weight: 700; color: rgba(255,255,255,.6);
-  font-family: monospace;
-}
-.seg-badge {
-  position: absolute; top: 6px; right: 8px;
-  font-size: 9px; font-weight: 700; letter-spacing: .05em;
-  padding: 2px 6px; border-radius: 999px;
-  background: rgba(0,0,0,.45); color: rgba(255,255,255,.8);
+  position: absolute; top: 7px; left: 8px; z-index: 2;
+  font-size: 10px; font-weight: 700; color: rgba(255,255,255,.5);
+  font-family: "SF Mono", "Fira Code", monospace;
+  background: rgba(0,0,0,.35); padding: 1px 5px; border-radius: 4px;
   backdrop-filter: blur(4px);
 }
+.seg-badge {
+  position: absolute; top: 7px; right: 8px; z-index: 2;
+  font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 6px; border-radius: 6px;
+  background: rgba(0,0,0,.4); color: rgba(255,255,255,.75);
+  backdrop-filter: blur(6px);
+  border: 0.5px solid rgba(255,255,255,.12);
+}
 .pip {
-  position: absolute; bottom: 6px; right: 8px;
-  width: 8px; height: 8px; border-radius: 50%;
+  position: absolute; bottom: 7px; right: 8px; z-index: 2;
+  width: 7px; height: 7px; border-radius: 50%;
 }
 .pip.done { background: #4ade80; }
-.pip.generating { background: #8d5cff; animation: blink 1s infinite; }
-.pip.pending { background: rgba(255,255,255,.25); }
+.pip.generating { background: #a78bfa; animation: pip-blink 1.2s ease infinite; }
+.pip.pending { background: rgba(255,255,255,.2); }
 .pip.failed { background: #f87171; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+@keyframes pip-blink { 0%,100%{opacity:1} 50%{opacity:.25} }
 
-.spin-ring {
-  width: 30px; height: 30px; border-radius: 50%;
-  border: 3px solid transparent;
-  border-top-color: #8d5cff; border-right-color: #f3b2ff;
-  animation: spin 1s linear infinite;
+/* generating overlay */
+.gen-overlay {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.15);
+}
+.gen-ring {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.08);
+  border-top-color: #a78bfa;
+  border-right-color: rgba(141,92,255,.4);
+  animation: spin .9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.pending-plus { font-size: 28px; color: rgba(255,255,255,.2); font-weight: 300; }
-.fail-badge {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: rgba(248,113,113,.2); border: 2px solid #f87171;
-  color: #f87171; font-size: 16px; font-weight: 700;
+
+.pending-icon {
+  position: absolute; z-index: 2;
+  font-size: 26px; color: rgba(255,255,255,.15); font-weight: 200;
+}
+.fail-icon {
+  position: absolute; z-index: 2;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(248,113,113,.15);
+  border: 1.5px solid rgba(248,113,113,.45);
+  color: #fca5a5; font-size: 14px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
 
 /* body */
-.body { padding: 8px 10px 10px; }
+.body {
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255,255,255,.05);
+}
 .prompt {
-  font-size: 11px; color: rgba(255,255,255,.7); margin: 0 0 6px;
-  line-height: 1.45; display: -webkit-box;
+  font-size: 11px; color: rgba(255,255,255,.62); margin: 0 0 7px;
+  line-height: 1.5; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag {
-  font-size: 10px; padding: 2px 6px; border-radius: 999px;
-  background: rgba(255,255,255,.07); color: rgba(255,255,255,.45);
+  font-size: 10px; padding: 2px 6px; border-radius: 5px;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.38);
+  border: 0.5px solid rgba(255,255,255,.06);
 }
-.tag.anchor { color: #a78bfa; background: rgba(141,92,255,.18); }
+.tag.model-tag { color: rgba(255,255,255,.45); }
+.tag.anchor { color: #a78bfa; background: rgba(141,92,255,.12); border-color: rgba(141,92,255,.2); }
 
 /* quick-generate hover button */
 .quick-gen-btn {
-  position: absolute; bottom: 6px; left: 8px;
+  position: absolute; bottom: 7px; left: 8px; z-index: 2;
   width: 22px; height: 22px; border-radius: 6px; border: none;
-  background: rgba(141,92,255,.85); color: white;
+  background: rgba(141,92,255,.8); color: white;
   font-size: 11px; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity .15s, background .15s; z-index: 5;
+  opacity: 0;
+  transition: opacity .15s, transform .1s;
+  backdrop-filter: blur(4px);
 }
 .shot-node:hover .quick-gen-btn { opacity: 1; }
-.quick-gen-btn:hover { background: #8d5cff; }
+.quick-gen-btn:hover { transform: scale(1.1); }
 
-/* handle */
+/* handles */
 .vf-handle {
-  width: 10px !important; height: 10px !important;
-  background: #8d5cff !important;
-  border: 2px solid #16161e !important;
+  width: 9px !important; height: 9px !important;
+  background: rgba(141,92,255,.7) !important;
+  border: 1.5px solid rgba(14,14,22,.9) !important;
   border-radius: 50% !important;
+  transition: background .15s !important;
 }
+.shot-node:hover .vf-handle { background: #a78bfa !important; }
 </style>

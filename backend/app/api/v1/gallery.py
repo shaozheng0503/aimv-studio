@@ -5,6 +5,7 @@ from sqlalchemy import select, func, desc, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import ok
 from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.models.project import Project, Media
@@ -33,7 +34,7 @@ async def publish_project(
     config["likes"] = config.get("likes", 0)
     project.style_config = config
     await db.commit()
-    return {"ok": True, "message": "Published to gallery!"}
+    return ok(message="Published to gallery")
 
 
 @router.post("/projects/{project_id}/unpublish")
@@ -52,7 +53,7 @@ async def unpublish_project(
     config["published"] = False
     project.style_config = config
     await db.commit()
-    return {"ok": True}
+    return ok()
 
 
 @router.get("/gallery")
@@ -115,7 +116,7 @@ async def list_gallery(
         for p in projects
     ]
 
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    return ok(data={"items": items, "total": total, "page": page, "page_size": page_size})
 
 
 @router.post("/gallery/{project_id}/like")
@@ -139,4 +140,4 @@ async def like_project(
     config["likes"] = config.get("likes", 0) + 1
     project.style_config = config
     await db.commit()
-    return {"likes": config["likes"]}
+    return ok(data={"likes": config["likes"]})

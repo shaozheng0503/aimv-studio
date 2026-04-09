@@ -1,15 +1,15 @@
-/* AIMV Design System — Neural Frames inspired dark theme */
+/* AIMV Design System — Premium Glass dark theme */
 :root {
   color-scheme: dark;
-  --bg: #050507;
-  --bg-soft: #0b0b11;
-  --card: #15151f;
-  --card-hover: #1c1c2a;
-  --text: #f7f7fb;
-  --text-muted: #b4b3c2;
-  --accent: #f3b2ff;
-  --accent-strong: #8d5cff;
-  --accent-gradient: linear-gradient(135deg, #8d5cff, #f3b2ff);
+  --bg: #07070d;
+  --bg-soft: #0a0a12;
+  --card: rgba(14,14,22,0.92);
+  --card-hover: rgba(18,18,28,0.95);
+  --text: #f0f0f8;
+  --text-muted: #a8a7b8;
+  --accent: #c4b5fd;
+  --accent-strong: #7c4dff;
+  --accent-gradient: linear-gradient(135deg, #7c4dff, #c480ff);
   --border: rgba(255, 255, 255, 0.08);
   --border-hover: rgba(255, 255, 255, 0.16);
   --success: #4ade80;
@@ -17,7 +17,10 @@
   --error: #f87171;
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  /* No outward glow — dark shadow only */
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.55);
+  --glass-bg: rgba(12,12,20,0.92);
+  --glass-border: rgba(255,255,255,0.08);
 }
 
 * {
@@ -63,44 +66,44 @@ a:hover {
   overflow-y: auto;
 }
 
-/* Cards */
+/* Cards — Premium Glass */
 .card {
-  background: var(--card);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  border: 0.5px solid var(--glass-border);
   border-radius: var(--radius);
   padding: 20px;
+  backdrop-filter: blur(12px);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .card:hover {
-  border-color: var(--border-hover);
-  box-shadow: var(--shadow);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255,255,255,0.04);
 }
 
 /* Buttons */
 .btn-primary {
   background: var(--accent-gradient);
-  color: #000;
+  color: rgba(255,255,255,0.95);
   border: none;
   border-radius: var(--radius-sm);
   padding: 10px 24px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: opacity 0.18s, transform 0.1s;
 }
 
-.btn-primary:hover {
-  opacity: 0.9;
-}
+.btn-primary:hover { opacity: 0.88; }
+.btn-primary:active { transform: scale(0.98); }
 
 .btn-ghost {
-  background: transparent;
+  background: rgba(255,255,255,0.04);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 24px;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, color 0.2s;
 }
 
 .btn-ghost:hover {
@@ -117,10 +120,10 @@ a:hover {
   font-weight: 500;
 }
 
-.badge-success { background: rgba(74, 222, 128, 0.15); color: var(--success); }
-.badge-warning { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
-.badge-error { background: rgba(248, 113, 113, 0.15); color: var(--error); }
-.badge-info { background: rgba(141, 92, 255, 0.15); color: var(--accent-strong); }
+.badge-success { background: rgba(74,222,128,0.1); color: var(--success); border: 0.5px solid rgba(74,222,128,0.2); }
+.badge-warning { background: rgba(251,191,36,0.1); color: var(--warning); border: 0.5px solid rgba(251,191,36,0.2); }
+.badge-error   { background: rgba(248,113,113,0.1); color: var(--error);   border: 0.5px solid rgba(248,113,113,0.2); }
+.badge-info    { background: rgba(124,77,255,0.1);  color: var(--accent);  border: 0.5px solid rgba(124,77,255,0.2); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }

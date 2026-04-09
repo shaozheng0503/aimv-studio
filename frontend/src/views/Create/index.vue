@@ -7,6 +7,8 @@ import { ElMessage } from 'element-plus'
 import ComparePanel from '@/components/ComparePanel.vue'
 import { useLangStore } from '@/stores/lang'
 import { useAuthStore } from '@/stores/auth'
+import { useWebSocketProgress } from '@/composables/useWebSocketProgress'
+import { useStoryboardEditor } from '@/composables/useStoryboardEditor'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,7 +19,7 @@ const isGuest = computed(() => !auth.token)
 const showLoginModal = ref(false)
 const projectId = ref<number | null>(null)
 
-// Chat state
+// ── Chat ─────────────────────────────────────────────────────────────────────
 const chatInput = ref('')
 const chatLoading = ref(false)
 const messages = ref<{ role: string; content: string }[]>([
@@ -25,73 +27,60 @@ const messages = ref<{ role: string; content: string }[]>([
 ])
 const chatMessagesEl = ref<HTMLElement | null>(null)
 
-// Project state
+// ── Project preferences ───────────────────────────────────────────────────────
 const visualStyle = ref('')
 const musicModel = ref('')
 const videoModel = ref('')
 const mood = ref('')
-const storyboard = ref<any[]>([])
-const generating = ref(false)
 const previewUrl = ref('')
 const showCompare = ref(false)
 
-// Storyboard editing
-const editingSegIdx = ref<number | null>(null)
-const editingSegData = ref<any>(null)
-const savingStoryboard = ref(false)
+// ── Storyboard editor (extracted composable) ──────────────────────────────────
+const {
+  storyboard,
+  editingSegIdx,
+  editingSegData,
+  savingStoryboard,
+  startEditSeg,
+  cancelEditSeg,
+  saveEditSeg,
+} = useStoryboardEditor(projectId, t.value('saveError'))
 
-function startEditSeg(i: number) {
-  editingSegIdx.value = i
-  editingSegData.value = { ...storyboard.value[i] }
-}
-
-function cancelEditSeg() {
-  editingSegIdx.value = null
-  editingSegData.value = null
-}
-
-async function saveEditSeg() {
-  if (editingSegIdx.value === null || !editingSegData.value || !projectId.value) return
-  const updated = [...storyboard.value]
-  updated[editingSegIdx.value] = { ...storyboard.value[editingSegIdx.value], ...editingSegData.value }
-  savingStoryboard.value = true
-  try {
-    await api.put(`/projects/${projectId.value}`, { storyboard: updated })
-    storyboard.value = updated
-    editingSegIdx.value = null
-    editingSegData.value = null
-  } catch {
-    ElMessage.error(t.value('saveError'))
-  } finally {
-    savingStoryboard.value = false
-  }
-}
-
-// Progress state from WebSocket
-const progress = ref<Record<string, any>>({
-  image: 'pending',
-  music: 'pending',
-  video: 'pending',
-  compose: 'pending',
+// ── WebSocket progress (extracted composable) ─────────────────────────────────
+const {
+  progress,
+  videoProgress,
+  generating,
+  connect: connectWS,
+  disconnect: disconnectWS,
+  ensureConnected,
+  resetProgress,
+} = useWebSocketProgress(projectId, {
+  messages: {
+    generationComplete: t.value('generationComplete'),
+    connectionLost: t.value('connectionLost'),
+  },
+  onPipelineComplete(fileUrl) {
+    loadProject()
+    if (fileUrl) previewUrl.value = fileUrl
+  },
 })
-const videoProgress = ref({ segment: 0, total: 0, pct: 0 })
-let ws: WebSocket | null = null
-let wsRetryCount = 0
-const WS_MAX_RETRIES = 5
 
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
   const id = route.params.id
   if (id) {
     projectId.value = Number(id)
     await loadProject()
-    connectWebSocket()
+    connectWS()
   }
 })
 
 onUnmounted(() => {
-  ws?.close()
+  disconnectWS()
 })
 
+// ── Data loading ──────────────────────────────────────────────────────────────
 async function loadProject() {
   if (!projectId.value) return
   try {
@@ -105,64 +94,14 @@ async function loadProject() {
     storyboard.value = p.storyboard || []
     if (p.model_preferences?.video) videoModel.value = p.model_preferences.video
     if (p.model_preferences?.music) musicModel.value = p.model_preferences.music
-    if (p.chat_history?.length) {
-      messages.value = p.chat_history
-    }
-    // Restore final video preview (survives page reload)
+    if (p.chat_history?.length) messages.value = p.chat_history
+
     const finalVideo = (mediaRes.data as any[]).find((m: any) => m.type === 'final_video')
-    if (finalVideo?.file_url) {
-      previewUrl.value = finalVideo.file_url
-    }
+    if (finalVideo?.file_url) previewUrl.value = finalVideo.file_url
   } catch { /* project may not exist yet */ }
 }
 
-function connectWebSocket() {
-  if (!projectId.value) return
-  const wsBase = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws')
-  // Token sent as first message after connect (not in URL, to avoid logging)
-  ws = new WebSocket(`${wsBase}/ws/projects/${projectId.value}/progress`)
-  ws.onopen = () => {
-    wsRetryCount = 0
-    const token = localStorage.getItem('token') || ''
-    if (token) ws?.send(JSON.stringify({ type: 'auth', token }))
-  }
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      progress.value[data.type] = data.status
-
-      if (data.type === 'video' && data.pct !== undefined) {
-        videoProgress.value = { segment: data.segment || 0, total: data.total || 0, pct: data.pct }
-      }
-
-      if (data.type === 'pipeline' && data.status === 'completed') {
-        generating.value = false
-        videoProgress.value = { segment: 0, total: 0, pct: 100 }
-        ElMessage.success(t.value('generationComplete'))
-        loadProject()
-      }
-
-      if (data.file_url && data.type === 'compose' && data.status === 'completed') {
-        previewUrl.value = data.file_url
-      }
-    } catch { /* malformed message */ }
-  }
-  ws.onerror = () => {
-    ElMessage.warning(t.value('connectionLost'))
-  }
-  ws.onclose = () => {
-    // Auto-reconnect with backoff, up to WS_MAX_RETRIES attempts
-    if (generating.value && wsRetryCount < WS_MAX_RETRIES) {
-      wsRetryCount++
-      const delay = Math.min(3000 * wsRetryCount, 30000)
-      setTimeout(() => connectWebSocket(), delay)
-    } else if (wsRetryCount >= WS_MAX_RETRIES) {
-      generating.value = false
-      ElMessage.error(t.value('connectionLost'))
-    }
-  }
-}
-
+// ── Chat ──────────────────────────────────────────────────────────────────────
 async function sendMessage() {
   if (!chatInput.value.trim() || chatLoading.value) return
   const text = chatInput.value.trim()
@@ -172,9 +111,8 @@ async function sendMessage() {
 
   chatLoading.value = true
   try {
-    // Guest mode: stateless LLM call, no project created
     if (isGuest.value) {
-      const history = messages.value.slice(0, -1) // exclude the message we just added
+      const history = messages.value.slice(0, -1)
       const res = await api.post('/chat/guest', { message: text, history })
       messages.value.push({ role: 'assistant', content: res.data.content })
       scrollChat()
@@ -182,7 +120,6 @@ async function sendMessage() {
     }
 
     if (!projectId.value) {
-      // Create project first, then update URL so reload works correctly
       const res = await api.post('/projects', { title: text.slice(0, 50) })
       projectId.value = res.data.id
       router.replace(`/create/${res.data.id}`)
@@ -193,18 +130,14 @@ async function sendMessage() {
       stream: false,
     })
     messages.value.push({ role: 'assistant', content: res.data.content })
-    if (res.data.plan?.storyboard) {
-      storyboard.value = res.data.plan.storyboard
-    }
-    // Auto-apply extracted intent to sidebar selectors
+    if (res.data.plan?.storyboard) storyboard.value = res.data.plan.storyboard
+
     const intent = res.data.intent_extracted
     if (intent) {
       if (intent.visual_style) visualStyle.value = intent.visual_style
       if (intent.mood) mood.value = intent.mood
       if (intent.music_style) musicModel.value = intent.music_style
-      if (intent.ready_to_plan) {
-        ElMessage.info(t.value('readyToPlan'))
-      }
+      if (intent.ready_to_plan) ElMessage.info(t.value('readyToPlan'))
     }
   } catch {
     messages.value.push({ role: 'assistant', content: t.value('chatError') })
@@ -214,13 +147,13 @@ async function sendMessage() {
   }
 }
 
+// ── Plan generation ───────────────────────────────────────────────────────────
 async function generatePlan() {
   if (isGuest.value) { showLoginModal.value = true; return }
   if (!projectId.value) return
   chatLoading.value = true
   const lastUserMsg = [...messages.value].reverse().find(m => m.role === 'user')?.content || ''
   try {
-    // Update project settings including model preferences
     await api.put(`/projects/${projectId.value}`, {
       visual_style: visualStyle.value,
       music_style: musicModel.value,
@@ -235,9 +168,7 @@ async function generatePlan() {
       generate_plan: true,
     })
     messages.value.push({ role: 'assistant', content: res.data.content })
-    if (res.data.plan?.storyboard) {
-      storyboard.value = res.data.plan.storyboard
-    }
+    if (res.data.plan?.storyboard) storyboard.value = res.data.plan.storyboard
   } catch {
     ElMessage.error(t.value('generatePlanError'))
   } finally {
@@ -246,6 +177,7 @@ async function generatePlan() {
   }
 }
 
+// ── Pipeline start ────────────────────────────────────────────────────────────
 async function startGenerating() {
   if (isGuest.value) { showLoginModal.value = true; return }
   if (!projectId.value || !storyboard.value.length) {
@@ -253,17 +185,43 @@ async function startGenerating() {
     return
   }
   generating.value = true
-  progress.value = { image: 'pending', music: 'pending', video: 'pending', compose: 'pending' }
+  resetProgress()
   try {
     await api.post(`/projects/${projectId.value}/pipeline/start`)
     ElMessage.info(t.value('startSuccess'))
-    if (!ws || ws.readyState !== WebSocket.OPEN) connectWebSocket()
+    ensureConnected()
   } catch {
     ElMessage.error(t.value('startGenerateError'))
     generating.value = false
   }
 }
 
+// ── Audio upload ──────────────────────────────────────────────────────────────
+function uploadAudio() {
+  if (isGuest.value) { showLoginModal.value = true; return }
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.mp3,.wav,.flac,.m4a'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file || !projectId.value) return
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      const res = await api.post(`/projects/${projectId.value}/upload/audio`, formData)
+      ElMessage.success(`音频分析完成！BPM: ${res.data.analysis.bpm}`)
+      messages.value.push({
+        role: 'assistant',
+        content: `音频上传并分析完成！\nBPM: ${res.data.analysis.bpm}\n时长: ${Math.round(res.data.analysis.duration)}秒\n检测到 ${res.data.analysis.sections.length} 个段落`,
+      })
+    } catch {
+      ElMessage.error(t.value('uploadAudioError'))
+    }
+  }
+  input.click()
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function scrollChat() {
   nextTick(() => {
     if (chatMessagesEl.value) {
@@ -301,30 +259,6 @@ function taskTypeLabel(type: string): string {
     compose: t.value('taskCompose'),
   }
   return map[type] || type
-}
-
-function uploadAudio() {
-  if (isGuest.value) { showLoginModal.value = true; return }
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.mp3,.wav,.flac,.m4a'
-  input.onchange = async () => {
-    const file = input.files?.[0]
-    if (!file || !projectId.value) return
-    const formData = new FormData()
-    formData.append('file', file)
-    try {
-      const res = await api.post(`/projects/${projectId.value}/upload/audio`, formData)
-      ElMessage.success(`音频分析完成！BPM: ${res.data.analysis.bpm}`)
-      messages.value.push({
-        role: 'assistant',
-        content: `音频上传并分析完成！\nBPM: ${res.data.analysis.bpm}\n时长: ${Math.round(res.data.analysis.duration)}秒\n检测到 ${res.data.analysis.sections.length} 个段落`,
-      })
-    } catch {
-      ElMessage.error(t.value('uploadAudioError'))
-    }
-  }
-  input.click()
 }
 </script>
 
@@ -500,20 +434,20 @@ function uploadAudio() {
             <div v-if="editingSegIdx === i" class="seg-editor">
               <div class="seg-editor-row">
                 <button
-                  :class="['label-toggle', editingSegData.label === 'sing' ? 'active-sing' : 'active-story']"
-                  @click="editingSegData.label = editingSegData.label === 'sing' ? 'story' : 'sing'"
-                >{{ editingSegData.label === 'sing' ? t('labelSing') : t('labelStory') }}</button>
+                  :class="['label-toggle', editingSegData!.label === 'sing' ? 'active-sing' : 'active-story']"
+                  @click="editingSegData!.label = editingSegData!.label === 'sing' ? 'story' : 'sing'"
+                >{{ editingSegData!.label === 'sing' ? t('labelSing') : t('labelStory') }}</button>
                 <span class="seg-num">#{{ i + 1 }}</span>
               </div>
               <textarea
-                v-model="editingSegData.description"
+                v-model="editingSegData!.description"
                 class="seg-textarea"
                 rows="3"
                 placeholder="场景描述..."
               />
               <textarea
-                v-if="editingSegData.video_prompt !== undefined"
-                v-model="editingSegData.video_prompt"
+                v-if="editingSegData!.video_prompt !== undefined"
+                v-model="editingSegData!.video_prompt"
                 class="seg-textarea seg-textarea-sm"
                 rows="2"
                 placeholder="视频提示词（可选，留空使用描述）..."
@@ -639,7 +573,7 @@ function uploadAudio() {
   gap: 4px; font-size: 11px; font-weight: 500; cursor: pointer; transition: opacity 0.2s;
 }
 .timeline-segment.sing { background: rgba(251, 191, 36, 0.2); border: 1px solid rgba(251, 191, 36, 0.4); color: var(--warning); }
-.timeline-segment.story { background: rgba(141, 92, 255, 0.2); border: 1px solid rgba(141, 92, 255, 0.4); color: var(--accent-strong); }
+.timeline-segment.story { background: rgba(124, 77, 255, 0.2); border: 1px solid rgba(124, 77, 255, 0.4); color: var(--accent); }
 .timeline-segment:hover { opacity: 0.8; }
 .seg-id { font-weight: 700; }
 .timeline-controls { display: flex; gap: 12px; }
@@ -672,7 +606,7 @@ function uploadAudio() {
   transition: all 0.15s;
 }
 .active-sing { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.5); color: #fbbf24; }
-.active-story { background: rgba(141,92,255,0.15); border-color: rgba(141,92,255,0.5); color: var(--accent-strong); }
+.active-story { background: rgba(124,77,255,0.15); border-color: rgba(124,77,255,0.5); color: var(--accent); }
 .seg-textarea {
   width: 100%; background: var(--bg); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text);

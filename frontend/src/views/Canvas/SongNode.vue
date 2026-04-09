@@ -26,11 +26,15 @@ function fmt(s: number) {
     <Handle type="source" :position="Position.Right" class="vf-handle music-handle" />
 
     <div class="sn-header">
-      <span class="sn-icon">&#x1F3B5;</span>
-      <span class="sn-type">Music</span>
-      <span v-if="data.generateStatus === 'generating'" class="sn-status gen" title="生成中">&#x25CF;</span>
-      <span v-else-if="data.generateStatus === 'done'" class="sn-status done" title="已生成">&#x25CF;</span>
-      <span v-else-if="data.generateStatus === 'failed'" class="sn-status fail" title="生成失败">&#x25CF;</span>
+      <div class="sn-icon-wrap">
+        <span class="sn-icon">♪</span>
+      </div>
+      <div class="sn-meta">
+        <span class="sn-type">Music</span>
+        <div v-if="data.generateStatus === 'generating'" class="sn-status-dot gen" />
+        <div v-else-if="data.generateStatus === 'done'" class="sn-status-dot done" />
+        <div v-else-if="data.generateStatus === 'failed'" class="sn-status-dot fail" />
+      </div>
     </div>
     <div class="sn-title">{{ data.title }}</div>
     <div class="sn-tags">
@@ -39,60 +43,77 @@ function fmt(s: number) {
       <span class="sn-tag dur">{{ fmt(data.duration) }}</span>
       <span class="sn-tag mood">{{ data.mood }}</span>
     </div>
-    <div v-if="data.generateStatus === 'done'" class="sn-audio-badge">&#x1F50A; AI 生成</div>
+    <div v-if="data.generateStatus === 'done'" class="sn-audio-badge">✓ AI 生成</div>
   </div>
 </template>
 
 <style scoped>
 .song-node {
-  width: 185px; border-radius: 10px;
-  border: 1.5px solid rgba(141,92,255,.3);
-  background: linear-gradient(135deg, rgba(141,92,255,.12), rgba(60,20,120,.15));
-  padding: 12px 12px 10px;
+  width: 186px;
+  border-radius: 12px;
+  border: 1px solid rgba(141,92,255,.2);
+  background: rgba(14,10,28,.88);
+  backdrop-filter: blur(12px);
+  padding: 11px 12px 10px;
   cursor: pointer;
-  transition: border-color .2s, box-shadow .2s;
+  transition: border-color .2s ease, box-shadow .2s ease, transform .1s ease;
   font-family: "Inter", system-ui, sans-serif;
 }
-.song-node:hover, .song-node.selected {
-  border-color: #8d5cff;
-  box-shadow: 0 0 18px rgba(141,92,255,.4);
+.song-node:hover {
+  border-color: rgba(141,92,255,.45);
+  box-shadow: 0 4px 24px rgba(0,0,0,.55), inset 0 0 0 0.5px rgba(141,92,255,.12);
 }
-.sn-header {
-  display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+.song-node.selected {
+  border-color: rgba(141,92,255,.65);
+  box-shadow: 0 2px 20px rgba(0,0,0,.5), inset 0 0 0 0.5px rgba(141,92,255,.25);
 }
-.sn-icon { font-size: 14px; }
+.song-node:active { transform: scale(0.98); }
+
+.sn-header { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.sn-icon-wrap {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  background: rgba(141,92,255,.15);
+  border: 0.5px solid rgba(141,92,255,.3);
+  display: flex; align-items: center; justify-content: center;
+}
+.sn-icon { font-size: 12px; color: #c4b5fd; }
+.sn-meta { display: flex; align-items: center; gap: 6px; flex: 1; }
 .sn-type {
   font-size: 9px; font-weight: 700; letter-spacing: .08em;
   color: #a78bfa; text-transform: uppercase; flex: 1;
 }
-.sn-status { font-size: 9px; }
-.sn-status.gen  { color: #fbbf24; animation: blink 1s infinite; }
-.sn-status.done { color: #34d399; }
-.sn-status.fail { color: #f87171; }
-@keyframes blink { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+.sn-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.sn-status-dot.gen  { background: #fbbf24; animation: blink 1.2s ease infinite; }
+.sn-status-dot.done { background: #34d399; }
+.sn-status-dot.fail { background: #f87171; }
+@keyframes blink { 0%,100% { opacity:1 } 50% { opacity:.2 } }
+
 .sn-title {
-  font-size: 13px; font-weight: 600; color: rgba(255,255,255,.9);
-  margin-bottom: 8px;
+  font-size: 13px; font-weight: 600; color: rgba(255,255,255,.88);
+  margin-bottom: 8px; line-height: 1.3;
 }
 .sn-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .sn-tag {
-  font-size: 9px; padding: 2px 6px; border-radius: 999px;
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.5);
+  font-size: 9px; padding: 2px 6px; border-radius: 5px;
+  background: rgba(255,255,255,.05); color: rgba(255,255,255,.4);
+  border: 0.5px solid rgba(255,255,255,.06);
 }
-.sn-tag.mood  { color: #a78bfa; background: rgba(141,92,255,.18); }
-.sn-tag.bpm   { color: #f3b2ff; background: rgba(243,178,255,.12); }
-.sn-tag.genre { color: rgba(255,255,255,.45); }
+.sn-tag.mood  { color: #a78bfa; background: rgba(141,92,255,.12); border-color: rgba(141,92,255,.18); }
+.sn-tag.bpm   { color: #c4b5fd; background: rgba(196,181,253,.07); border-color: rgba(196,181,253,.12); }
+.sn-tag.genre { color: rgba(255,255,255,.42); }
 .sn-audio-badge {
-  margin-top: 7px;
-  font-size: 9px; color: #34d399;
-  background: rgba(52,211,153,.12);
-  border: 1px solid rgba(52,211,153,.25);
-  border-radius: 6px; padding: 2px 7px; display: inline-block;
+  margin-top: 8px;
+  font-size: 9px; color: #34d399; font-weight: 600;
+  background: rgba(52,211,153,.08);
+  border: 0.5px solid rgba(52,211,153,.2);
+  border-radius: 5px; padding: 2px 7px; display: inline-block;
 }
 .vf-handle.music-handle {
-  width: 10px !important; height: 10px !important;
-  background: #8d5cff !important;
-  border: 2px solid #08080e !important;
+  width: 9px !important; height: 9px !important;
+  background: rgba(141,92,255,.7) !important;
+  border: 1.5px solid rgba(14,10,28,.9) !important;
   border-radius: 50% !important;
 }
 </style>

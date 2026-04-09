@@ -6,19 +6,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import ok
 from app.api.v1.auth import get_current_user
+from app.api.v1.deps import get_owned_project
 from app.models.user import User
-from app.models.project import Project, Task, Media
+from app.models.project import Task, Media
+from app.workers.export_tasks import run_export_task
 
 router = APIRouter(tags=["export"])
 
 PLATFORM_PRESETS = {
-    "douyin": {"label": "Douyin (9:16 vertical)", "width": 1080, "height": 1920, "bitrate": "4M"},
-    "bilibili": {"label": "Bilibili (16:9)", "width": 1920, "height": 1080, "bitrate": "6M"},
-    "youtube": {"label": "YouTube (16:9 HQ)", "width": 1920, "height": 1080, "bitrate": "8M"},
-    "xiaohongshu": {"label": "Xiaohongshu (3:4)", "width": 1080, "height": 1440, "bitrate": "4M"},
-    "instagram": {"label": "Instagram Reels (9:16)", "width": 1080, "height": 1920, "bitrate": "3.5M"},
-    "original": {"label": "Original (no re-encode)", "width": 0, "height": 0, "bitrate": "0"},
+    "douyin":      {"label": "Douyin (9:16 vertical)", "width": 1080, "height": 1920, "bitrate": "4M"},
+    "bilibili":    {"label": "Bilibili (16:9)",         "width": 1920, "height": 1080, "bitrate": "6M"},
+    "youtube":     {"label": "YouTube (16:9 HQ)",       "width": 1920, "height": 1080, "bitrate": "8M"},
+    "xiaohongshu": {"label": "Xiaohongshu (3:4)",       "width": 1080, "height": 1440, "bitrate": "4M"},
+    "instagram":   {"label": "Instagram Reels (9:16)",  "width": 1080, "height": 1920, "bitrate": "3.5M"},
+    "original":    {"label": "Original (no re-encode)", "width": 0,    "height": 0,    "bitrate": "0"},
 }
 
 
@@ -31,7 +34,7 @@ class ExportRequest(BaseModel):
 
 @router.get("/export/presets")
 async def list_presets():
-    return PLATFORM_PRESETS
+    return ok(data=PLATFORM_PRESETS)
 
 
 @router.post("/projects/{project_id}/export")
@@ -41,12 +44,7 @@ async def export_video(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == user.id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await get_owned_project(project_id, user, db)
 
     # Find the final video
     media_result = await db.execute(
@@ -59,10 +57,14 @@ async def export_video(
         raise HTTPException(status_code=400, detail="No final video found. Run pipeline first.")
 
     if req.platform not in PLATFORM_PRESETS:
-        raise HTTPException(status_code=400, detail=f"Unknown platform. Choose from: {', '.join(PLATFORM_PRESETS)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown platform. Choose from: {', '.join(PLATFORM_PRESETS)}",
+        )
 
+    # Fast-path: original — no re-encode needed
     if req.platform == "original":
-        return {"download_url": final_media.file_url, "platform": "original"}
+        return ok(data={"download_url": final_media.file_url, "platform": "original"})
 
     # Build SRT content from stored lyrics if subtitles requested
     srt_content: str | None = None
@@ -96,7 +98,6 @@ async def export_video(
     await db.commit()
     await db.refresh(task)
 
-    from app.workers.export_tasks import run_export_task
     run_export_task.delay(task.id)
 
-    return {"task_id": task.id, "platform": req.platform, "status": "processing"}
+    return ok(data={"task_id": task.id, "platform": req.platform, "status": "processing"})
