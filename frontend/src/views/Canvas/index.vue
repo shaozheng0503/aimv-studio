@@ -118,7 +118,7 @@ const initialNodes = [
   {
     id: 's2', type: 'shot', position: { x: 680, y: 240 },
     data: {
-      index: 2, status: 'done', duration: 6, model: 'Veo 3.1', timeAnchor: null,
+      index: 2, status: 'done', duration: 6, model: 'veo', timeAnchor: null,
       gradient: 'linear-gradient(135deg,#2d1b69,#4a1942)', segment: null,
       prompt: '女孩独自站在窗边，灯光从侧面打过来',
     },
@@ -134,7 +134,7 @@ const initialNodes = [
   {
     id: 's4', type: 'shot', position: { x: 970, y: 345 },
     data: {
-      index: 4, status: 'pending', duration: 7, model: 'Veo 3.1', timeAnchor: null,
+      index: 4, status: 'pending', duration: 7, model: 'veo', timeAnchor: null,
       gradient: 'linear-gradient(135deg,#0f3460,#533483)', segment: null,
       prompt: '双人近景对视，情感高峰，虚化背景',
     },
@@ -407,8 +407,13 @@ function updateNodeData(nodeId: string, updates: Record<string, any>) {
 }
 
 // Only list models that have a backend adapter implemented.
-// Kling 2.0 and Hailuo 2.0 are planned but not yet supported.
-const VIDEO_MODELS = ['Veo 3.1', 'Seedance 2.0', 'Wan2.2', 'Grok Video']
+const VIDEO_MODELS = ['veo', 'seedance', 'grok', 'wan2.2']
+const VIDEO_MODEL_LABELS: Record<string, string> = {
+  'veo': 'Veo 3.0 (Google)',
+  'seedance': 'Seedance 2.0',
+  'grok': 'Grok Video',
+  'wan2.2': 'Wan 2.2 (本地)',
+}
 
 function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
   const id = `${type}-${Date.now()}`
@@ -1237,7 +1242,7 @@ onUnmounted(() => {
                 :value="(selectedNode.data.model as string)"
                 @change="updateNodeData(selectedNodeId!, { model: ($event.target as HTMLSelectElement).value })"
               >
-                <option v-for="m in VIDEO_MODELS" :key="m">{{ m }}</option>
+                <option v-for="m in VIDEO_MODELS" :key="m" :value="m">{{ VIDEO_MODEL_LABELS[m] ?? m }}</option>
               </select>
             </div>
             <div class="panel-field">

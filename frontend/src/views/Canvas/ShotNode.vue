@@ -28,6 +28,17 @@ function fmt(s: number) {
   const sec = String(Math.floor(s % 60)).padStart(2, '0')
   return `${m}:${sec}`
 }
+
+const MODEL_LABELS: Record<string, string> = {
+  'veo': 'Veo 3',
+  'seedance': 'Seedance',
+  'grok': 'Grok',
+  'wan2.2': 'Wan 2.2',
+}
+
+function modelLabel(model: string): string {
+  return MODEL_LABELS[model.toLowerCase()] ?? model
+}
 </script>
 
 <template>
@@ -75,7 +86,7 @@ function fmt(s: number) {
     <div class="body">
       <p class="prompt">{{ data.prompt }}</p>
       <div class="tags">
-        <span class="tag model-tag">{{ data.model }}</span>
+        <span class="tag model-tag">{{ modelLabel(data.model) }}</span>
         <span class="tag">{{ data.duration }}s</span>
         <span v-if="data.timeAnchor !== null" class="tag anchor">⏱ {{ fmt(data.timeAnchor!) }}</span>
       </div>

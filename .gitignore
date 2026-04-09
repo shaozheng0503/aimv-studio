@@ -28,6 +28,7 @@ minio_data/
 
 # Credentials (service account keys, never commit)
 backend/credentials/
+backend/.credentials/
 
 # Media / Generated files
 /tmp/

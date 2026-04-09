@@ -385,8 +385,8 @@ function taskTypeLabel(type: string): string {
         <label>{{ t('videoModel') }}</label>
         <el-select v-model="videoModel" :placeholder="t('autoRouted')" style="width: 100%">
           <el-option :label="t('autoRouted')" value="" />
+          <el-option label="Veo 3.0 (Google)" value="veo" />
           <el-option label="Seedance 2.0" value="seedance" />
-          <el-option label="Veo 3.1" value="veo" />
           <el-option label="Grok Video" value="grok" />
           <el-option label="Wan 2.2（本地）" value="wan2.2" />
         </el-select>

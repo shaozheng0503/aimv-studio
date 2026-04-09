@@ -30,6 +30,8 @@ ADAPTER_MAP: dict[str, type[BaseModelAdapter]] = {
     "veo": VeoAdapter,
     "grok": GrokVideoAdapter,
     "gemini-image": GeminiImageAdapter,
+    # Alias: "imagen-3" routes to the same Google image adapter (uses Imagen 3.0 fallback)
+    "imagen-3": GeminiImageAdapter,
 }
 
 # Maps human-readable / frontend display names → canonical adapter keys.
@@ -57,6 +59,13 @@ _MODEL_NAME_ALIASES: dict[str, str] = {
     "z_image": "z-image",
     "gemini_image": "gemini-image",
     "gemini image": "gemini-image",
+    "imagen 3": "imagen-3",
+    "imagen3": "imagen-3",
+    "imagen-3.0": "imagen-3",
+    "veo 3": "veo",
+    "veo 2": "veo",
+    "veo3": "veo",
+    "veo2": "veo",
 }
 
 

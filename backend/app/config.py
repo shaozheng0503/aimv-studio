@@ -47,8 +47,11 @@ class Settings(BaseSettings):
     z_image_api_key: str = ""
     z_image_base_url: str = "http://localhost:7860"
 
-    # Google Cloud service account (for gemini-image / imagen-3.0)
+    # Google Cloud service account (for gemini-image / imagen-3.0 / veo)
+    # Priority: google_sa_json (inline JSON string) > google_sa_path (file)
+    # Set GOOGLE_SA_JSON=<full JSON string> in env to avoid relying on a mounted file.
     google_sa_path: str = ".credentials/gcp-sa.json"
+    google_sa_json: str = ""  # full SA JSON as a single-line string (optional)
 
     # Local model server base URLs (override via env vars in production)
     acestep_base_url: str = "http://localhost:7860"
