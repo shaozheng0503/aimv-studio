@@ -218,7 +218,7 @@ def run_full_pipeline(project_id: int):
         notify_progress(project_id, 0, "pipeline", "started", {"total_segments": len(storyboard)})
 
         model_prefs = project.model_preferences or {}
-        image_model = model_prefs.get("image", "z-image")
+        image_model = model_prefs.get("image", "gemini-image")
 
         image_tasks = []
         for segment in storyboard:

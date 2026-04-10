@@ -73,8 +73,6 @@ class ComposeService:
                 norm_path = str(tmp_dir / f"norm_{i:04d}.mp4")
                 _run_ffmpeg([
                     "ffmpeg", "-y",
-                    "-allowed_extensions", "ALL",
-                    "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
                     "-i", src,
                     "-vf", scale_filter,
                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
@@ -111,8 +109,6 @@ class ComposeService:
         )
         _run_ffmpeg([
             "ffmpeg", "-y",
-            "-allowed_extensions", "ALL",
-            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
             "-i", video_path,
             "-i", audio_path,
             "-c:v", "copy",
@@ -191,8 +187,6 @@ class ComposeService:
         w, h = preset["width"], preset["height"]
         _run_ffmpeg([
             "ffmpeg", "-y",
-            "-allowed_extensions", "ALL",
-            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
             "-i", video_path,
             "-vf", (
                 f"scale={w}:{h}:force_original_aspect_ratio=decrease,"

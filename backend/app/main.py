@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from app.config import get_settings
-from app.api.v1 import auth, project, generate, chat, pipeline, media, compare, export, gallery, canvas
+from app.api.v1 import auth, project, generate, chat, pipeline, media, compare, export, gallery, canvas, home
 
 settings = get_settings()
 
@@ -65,6 +67,12 @@ app.include_router(compare.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(gallery.router, prefix="/api/v1")
 app.include_router(canvas.router, prefix="/api/v1")
+app.include_router(home.router, prefix="/api/v1")
+
+# Local media fallback (used when MinIO is unavailable in local development)
+_LOCAL_STORAGE_DIR = Path(__file__).resolve().parents[1] / "local_storage"
+_LOCAL_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=str(_LOCAL_STORAGE_DIR)), name="storage")
 
 
 @app.get("/health")

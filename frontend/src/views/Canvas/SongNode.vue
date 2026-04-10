@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
+import { storeToRefs } from 'pinia'
+import { useLangStore } from '@/stores/lang'
 
 defineProps<{
   data: {
@@ -14,6 +16,29 @@ defineProps<{
   selected?: boolean
 }>()
 
+const { lang } = storeToRefs(useLangStore())
+
+function moodLabel(v?: string) {
+  const s = (v || '').toLowerCase()
+  if (lang.value !== 'zh') return v || ''
+  if (s === 'energetic') return '活力'
+  if (s === 'neutral') return '中性'
+  if (s === 'melancholic') return '忧郁'
+  if (s === 'romantic') return '浪漫'
+  if (s === 'epic') return '史诗'
+  if (s === 'peaceful') return '平静'
+  return v || ''
+}
+
+function genreLabel(v?: string) {
+  const s = (v || '').toLowerCase()
+  if (lang.value !== 'zh') return v || ''
+  if (s === 'electronic') return '电子'
+  if (s === 'pop') return '流行'
+  if (s === 'classical') return '古典'
+  return v || ''
+}
+
 function fmt(s: number) {
   const m = Math.floor(s / 60)
   const sec = String(Math.floor(s % 60)).padStart(2, '0')
@@ -23,6 +48,7 @@ function fmt(s: number) {
 
 <template>
   <div class="song-node" :class="{ selected }">
+    <Handle type="target" :position="Position.Left" class="vf-handle in-handle" />
     <Handle type="source" :position="Position.Right" class="vf-handle music-handle" />
 
     <div class="sn-header">
@@ -30,7 +56,7 @@ function fmt(s: number) {
         <span class="sn-icon">♪</span>
       </div>
       <div class="sn-meta">
-        <span class="sn-type">Music</span>
+        <span class="sn-type">{{ lang === 'zh' ? '音乐' : 'Music' }}</span>
         <div v-if="data.generateStatus === 'generating'" class="sn-status-dot gen" />
         <div v-else-if="data.generateStatus === 'done'" class="sn-status-dot done" />
         <div v-else-if="data.generateStatus === 'failed'" class="sn-status-dot fail" />
@@ -38,10 +64,10 @@ function fmt(s: number) {
     </div>
     <div class="sn-title">{{ data.title }}</div>
     <div class="sn-tags">
-      <span class="sn-tag genre">{{ data.genre }}</span>
+      <span class="sn-tag genre">{{ genreLabel(data.genre) }}</span>
       <span class="sn-tag bpm">{{ data.bpm }} BPM</span>
       <span class="sn-tag dur">{{ fmt(data.duration) }}</span>
-      <span class="sn-tag mood">{{ data.mood }}</span>
+      <span class="sn-tag mood">{{ moodLabel(data.mood) }}</span>
     </div>
     <div v-if="data.generateStatus === 'done'" class="sn-audio-badge">✓ AI 生成</div>
   </div>
@@ -113,6 +139,12 @@ function fmt(s: number) {
 .vf-handle.music-handle {
   width: 9px !important; height: 9px !important;
   background: rgba(141,92,255,.7) !important;
+  border: 1.5px solid rgba(14,10,28,.9) !important;
+  border-radius: 50% !important;
+}
+.vf-handle.in-handle {
+  width: 9px !important; height: 9px !important;
+  background: rgba(255,255,255,.2) !important;
   border: 1.5px solid rgba(14,10,28,.9) !important;
   border-radius: 50% !important;
 }

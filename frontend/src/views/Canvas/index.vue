@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, markRaw, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
+import { useLangStore } from '@/stores/lang'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Background } from '@vue-flow/background'
@@ -19,6 +21,38 @@ import SceneNode from './SceneNode.vue'
 const route  = useRoute()
 const router = useRouter()
 const projectId = route.params.id as string
+const langStore = useLangStore()
+const { lang } = storeToRefs(langStore)
+const ui = computed(() => lang.value === 'zh'
+  ? {
+      canvasTitle: '画布',
+      shot: '镜头',
+      prompt: '提示词',
+      music: '音乐',
+      characters: '角色',
+      scene: '场景',
+      frameChaining: '镜头衔接',
+      generationPayload: '生成载荷',
+      character: '角色',
+      musicNode: '音乐节点',
+      characterNode: '角色节点',
+      sceneNode: '场景节点',
+    }
+  : {
+      canvasTitle: 'Canvas',
+      shot: 'Shot',
+      prompt: 'Prompt',
+      music: 'Music',
+      characters: 'Characters',
+      scene: 'Scene',
+      frameChaining: 'Frame Chaining',
+      generationPayload: 'Generation Payload',
+      character: 'Character',
+      musicNode: 'Music node',
+      characterNode: 'Character node',
+      sceneNode: 'Scene node',
+    }
+)
 
 // ─── mock music analysis (attached to song1 node) ──────────────────────────
 const DURATION = 180
@@ -68,25 +102,25 @@ const initialNodes = [
     id: 'zone-material', type: 'zone',
     position: { x: 18, y: 28 }, zIndex: -1, draggable: false, selectable: false,
     style: { width: '324px', height: '568px' },
-    data: { label: '素材库', sublabel: 'Music / Character', color: '#8d5cff' },
+    data: { label: '素材库', sublabel: '音乐 / 角色', color: '#8d5cff' },
   },
   {
     id: 'zone-scene', type: 'zone',
     position: { x: 352, y: 104 }, zIndex: -1, draggable: false, selectable: false,
     style: { width: '250px', height: '416px' },
-    data: { label: '场景', sublabel: 'Scene', color: '#22d3ee' },
+    data: { label: '场景', sublabel: '场景设定', color: '#22d3ee' },
   },
   {
     id: 'zone-mv', type: 'zone',
     position: { x: 646, y: 18 }, zIndex: -1, draggable: false, selectable: false,
     style: { width: '860px', height: '548px' },
-    data: { label: 'MV 制作', sublabel: 'Shot Sequence', color: '#f3b2ff' },
+    data: { label: 'MV 制作', sublabel: '镜头序列', color: '#f3b2ff' },
   },
 
   // Music
   {
     id: 'song1', type: 'song', position: { x: 60, y: 70 },
-    data: { title: '夏日霓虹', mood: 'energetic', bpm: 128, duration: 180, genre: 'Electronic' },
+    data: { title: '夏日霓虹', mood: '中性', bpm: 128, duration: 180, genre: '电子' },
   },
   // Characters
   {
@@ -188,6 +222,9 @@ const projectTitle  = ref('')
 const showGuide     = ref(false)
 const editingTitle  = ref(false)
 const editedTitle   = ref('')
+const composingFinal = ref(false)
+const autoComposeAfterBatch = ref(false)
+const autoComposeNodeIds = ref<string[]>([])
 
 async function startEditTitle() {
   editedTitle.value = projectTitle.value
@@ -202,12 +239,12 @@ async function saveProjectTitle() {
   if (!t || t === projectTitle.value || !projectId) return
   const prev = projectTitle.value
   projectTitle.value = t
-  document.title = `${t} — Canvas`
+  document.title = `${t} — ${ui.value.canvasTitle}`
   try {
     await api.put(`/projects/${projectId}`, { title: t })
   } catch {
     projectTitle.value = prev
-    document.title = `${prev} — Canvas`
+    document.title = `${prev} — ${ui.value.canvasTitle}`
   }
 }
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -261,8 +298,43 @@ const shotStats = computed(() => {
   }
 })
 
+function statusLabel(status?: string) {
+  if (lang.value !== 'zh') return status ?? ''
+  if (status === 'pending') return '等待'
+  if (status === 'generating') return '生成中'
+  if (status === 'done') return '完成'
+  if (status === 'failed') return '失败'
+  return status ?? ''
+}
+
+function moodLabel(v?: string) {
+  const s = (v || '').toLowerCase()
+  if (lang.value !== 'zh') return v || ''
+  if (s === 'energetic') return '活力'
+  if (s === 'neutral') return '中性'
+  if (s === 'melancholic') return '忧郁'
+  if (s === 'romantic') return '浪漫'
+  if (s === 'epic') return '史诗'
+  if (s === 'peaceful') return '平静'
+  return v || ''
+}
+
+function genreLabel(v?: string) {
+  const s = (v || '').toLowerCase()
+  if (lang.value !== 'zh') return v || ''
+  if (s === 'electronic') return '电子'
+  if (s === 'pop') return '流行'
+  if (s === 'classical') return '古典'
+  return v || ''
+}
+
 // Sync shot node status from polling result
-function _patchNodeStatus(nodeId: string, status: string, videoUrl?: string | null) {
+function _patchNodeStatus(
+  nodeId: string,
+  status: string,
+  videoUrl?: string | null,
+  errorMessage?: string | null,
+) {
   let shotIndex: number | null = null
   nodes.value = nodes.value.map(n => {
     if (n.id === nodeId) {
@@ -271,9 +343,19 @@ function _patchNodeStatus(nodeId: string, status: string, videoUrl?: string | nu
     }
     return n
   })
+  const nodeLabel = lang.value === 'zh' ? '镜头' : 'Shot'
+  const doneText = lang.value === 'zh' ? '生成完成' : 'completed'
+  const failText = lang.value === 'zh' ? '生成失败' : 'failed'
   const idxStr = shotIndex !== null ? ` #${String(shotIndex).padStart(2, '0')}` : ''
-  if (status === 'done')   ElMessage.success({ message: `Shot${idxStr} 生成完成 ✓`, duration: 3500 })
-  if (status === 'failed') ElMessage.error({ message: `Shot${idxStr} 生成失败`, duration: 4000 })
+  if (status === 'done')   ElMessage.success({ message: `${nodeLabel}${idxStr} ${doneText} ✓`, duration: 3500 })
+  if (status === 'failed') {
+    const reason = (errorMessage || '').trim()
+    ElMessage.error({
+      message: reason ? `${nodeLabel}${idxStr} ${failText}：${reason}` : `${nodeLabel}${idxStr} ${failText}`,
+      duration: 5500,
+    })
+  }
+  maybeAutoComposeAfterBatch()
 }
 
 function startPolling(nodeId: string) {
@@ -284,7 +366,7 @@ function startPolling(nodeId: string) {
       const { data } = await api.get(`/projects/${projectId}/canvas/shots/${nodeId}`)
       if (data.status === 'done' || data.status === 'failed') {
         stopPolling(nodeId)
-        _patchNodeStatus(nodeId, data.status, data.video_url)
+        _patchNodeStatus(nodeId, data.status, data.video_url, data.error_message)
       }
     } catch { stopPolling(nodeId) }
   }, 3000)
@@ -309,7 +391,7 @@ async function loadCanvas() {
     ])
     const data = canvasRes.data
     projectTitle.value = projectRes.data.title ?? ''
-    document.title = `${projectTitle.value} — Canvas`
+    document.title = `${projectTitle.value} — ${ui.value.canvasTitle}`
     const savedNodes: any[] = data.nodes ?? []
     const zoneNodes = initialNodes.filter((n: any) => n.type === 'zone')
 
@@ -417,6 +499,12 @@ const VIDEO_MODEL_LABELS: Record<string, string> = {
   'grok':         'Grok Video',
   'wan2.2':       'Wan 2.2 (本地)',
 }
+const MUSIC_MODELS = ['acestep', 'suno', 'lyria']
+const MUSIC_MODEL_LABELS: Record<string, string> = {
+  'acestep': 'ACE-Step',
+  'suno': 'Suno',
+  'lyria': 'Lyria',
+}
 
 function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
   const id = `${type}-${Date.now()}`
@@ -425,9 +513,9 @@ function addNode(type: 'shot' | 'song' | 'char' | 'scene') {
   const defaultData: Record<string, any> = {
     shot:  { index: shotCount + 1, prompt: '', model: 'Veo 3.1', duration: 5, status: 'pending',
              gradient: 'linear-gradient(135deg,#1a1a2e,#16213e)', segment: null, timeAnchor: null },
-    song:  { title: '新音乐', mood: 'neutral', bpm: 120, duration: 180, genre: 'Electronic',
+    song:  { title: '新音乐', mood: '中性', bpm: 120, duration: 180, genre: '电子',
              description: '', lyrics: '', vocalLanguage: 'unknown', instrumental: false,
-             generateStatus: 'idle', audioUrl: null },
+             generateStatus: 'idle', audioUrl: null, musicModel: 'acestep' },
     char:  { name: '新角色', description: '', loraId: '', gender: 'other' },
     scene: { name: '新场景', style: '', location: '', lighting: '' },
   }[type]
@@ -483,22 +571,46 @@ function handleConnect(connection: any) {
   const tgt = nodes.value.find(n => n.id === connection.target)
   if (!src || !tgt || src.type === 'zone' || tgt.type === 'zone') return
 
-  const dup = edges.value.some(e => e.source === connection.source && e.target === connection.target)
-  if (dup) return
+  const isRef = (t: string) => t === 'song' || t === 'char' || t === 'scene'
+  const isShot = (t: string) => t === 'shot'
 
-  pushHistory()
+  // Normalize direction:
+  // - references always point to shot (song/char/scene -> shot)
+  // - sequence connects shot -> shot
+  let sourceId = connection.source as string
+  let targetId = connection.target as string
+  let sourceType = src.type
+
+  if (isRef(src.type) && isShot(tgt.type)) {
+    // already normalized
+  } else if (isShot(src.type) && isRef(tgt.type)) {
+    // user dragged reverse direction; auto-swap to keep semantic edge type
+    sourceId = connection.target as string
+    targetId = connection.source as string
+    sourceType = tgt.type
+  } else if (!(isShot(src.type) && isShot(tgt.type))) {
+    return
+  }
 
   let edgeType = 'sequence'
   let style = EQ
   let animated = false
-  if (src.type === 'song')  { edgeType = 'music-ref'; style = EM; animated = true  }
-  if (src.type === 'char')  { edgeType = 'char-ref';  style = EC }
-  if (src.type === 'scene') { edgeType = 'scene-ref'; style = ES }
+  if (sourceType === 'song')  { edgeType = 'music-ref'; style = EM; animated = true  }
+  if (sourceType === 'char')  { edgeType = 'char-ref';  style = EC }
+  if (sourceType === 'scene') { edgeType = 'scene-ref'; style = ES }
 
+  const dup = edges.value.some(e =>
+    e.source === sourceId &&
+    e.target === targetId &&
+    (e.data?.edgeType ?? 'sequence') === edgeType
+  )
+  if (dup) return
+
+  pushHistory()
   edges.value = [...edges.value, {
-    id: `e-${connection.source}-${connection.target}-${Date.now()}`,
-    source: connection.source,
-    target: connection.target,
+    id: `e-${sourceId}-${targetId}-${Date.now()}`,
+    source: sourceId,
+    target: targetId,
     type: 'smoothstep',
     animated,
     style,
@@ -559,6 +671,95 @@ function stopMusicPolling(nodeId: string) {
   }
 }
 
+function startCharImagePolling(nodeId: string, taskId: number) {
+  const key = `charimg:${nodeId}`
+  if (_pollingTimers[key] || !projectId) return
+  _pollingTimers[key] = setInterval(async () => {
+    try {
+      const { data } = await api.get(`/projects/${projectId}/tasks/${taskId}`)
+      if (data.status === 'completed') {
+        clearInterval(_pollingTimers[key])
+        delete _pollingTimers[key]
+        const fileUrl = data?.result?.file_url ?? null
+        updateNodeData(nodeId, { imageStatus: 'done', imageUrl: fileUrl })
+        ElMessage.success(lang.value === 'zh' ? '角色图生成完成 ✓' : 'Character image generated ✓')
+      } else if (data.status === 'failed') {
+        clearInterval(_pollingTimers[key])
+        delete _pollingTimers[key]
+        updateNodeData(nodeId, { imageStatus: 'failed' })
+        ElMessage.error(data.error_message || (lang.value === 'zh' ? '角色图生成失败' : 'Character image generation failed'))
+      }
+    } catch {
+      clearInterval(_pollingTimers[key])
+      delete _pollingTimers[key]
+      updateNodeData(nodeId, { imageStatus: 'failed' })
+    }
+  }, 3000)
+}
+
+async function generateCharacterImage(nodeId: string) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node || node.type !== 'char' || !projectId) return
+
+  const name = String(node.data.name ?? '').trim()
+  const desc = String(node.data.description ?? '').trim()
+  const lora = String(node.data.loraId ?? '').trim()
+  const prompt = [name, desc, lora ? `LoRA ${lora}` : '']
+    .filter(Boolean)
+    .join(', ')
+
+  if (!prompt) {
+    ElMessage.warning(lang.value === 'zh' ? '请先填写角色名称或描述' : 'Please enter character name or description first')
+    return
+  }
+
+  updateNodeData(nodeId, { imageStatus: 'generating' })
+  try {
+    const { data } = await api.post(`/projects/${projectId}/generate/image`, {
+      prompt,
+      model_override: 'gemini-image',
+      params: {
+        character_name: name || undefined,
+      },
+    })
+    startCharImagePolling(nodeId, data.id)
+  } catch {
+    updateNodeData(nodeId, { imageStatus: 'failed' })
+    ElMessage.error(lang.value === 'zh' ? '角色图生成请求失败' : 'Failed to request character image generation')
+  }
+}
+
+async function generateSceneImage(nodeId: string) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node || node.type !== 'scene' || !projectId) return
+
+  const name = String(node.data.name ?? '').trim()
+  const style = String(node.data.style ?? '').trim()
+  const location = String(node.data.location ?? '').trim()
+  const lighting = String(node.data.lighting ?? '').trim()
+  const prompt = [name, style, location, lighting].filter(Boolean).join(', ')
+
+  if (!prompt) {
+    ElMessage.warning(lang.value === 'zh' ? '请先填写场景信息' : 'Please enter scene details first')
+    return
+  }
+
+  updateNodeData(nodeId, { imageStatus: 'generating' })
+  try {
+    const { data } = await api.post(`/projects/${projectId}/generate/image`, {
+      prompt,
+      model_override: 'gemini-image',
+      params: {
+        scene_name: name || undefined,
+      },
+    })
+    startCharImagePolling(nodeId, data.id)
+  } catch {
+    updateNodeData(nodeId, { imageStatus: 'failed' })
+    ElMessage.error(lang.value === 'zh' ? '场景图生成请求失败' : 'Failed to request scene image generation')
+  }
+}
+
 async function generateMusic(nodeId: string) {
   const node = nodes.value.find(n => n.id === nodeId)
   if (!node || node.type !== 'song' || !projectId) return
@@ -572,6 +773,7 @@ async function generateMusic(nodeId: string) {
       duration: node.data.duration ?? -1,
       vocal_language: node.data.vocalLanguage ?? 'unknown',
       instrumental: node.data.instrumental ?? false,
+      model_name: String(node.data.musicModel ?? 'acestep'),
     })
     startMusicPolling(nodeId)
   } catch {
@@ -693,6 +895,8 @@ async function generateAll() {
     const { data } = await api.post(`/projects/${projectId}/canvas/generate-all`)
     if (data.dispatched > 0) {
       const dispatchedIds: Set<string> = new Set(data.node_ids ?? [])
+      autoComposeNodeIds.value = Array.from(dispatchedIds)
+      autoComposeAfterBatch.value = true
       nodes.value = nodes.value.map((n: any) =>
         n.type === 'shot' && dispatchedIds.has(n.id)
           ? { ...n, data: { ...n.data, status: 'generating' } }
@@ -701,6 +905,72 @@ async function generateAll() {
       dispatchedIds.forEach(id => startPolling(id))
     }
   } catch { /* ignore */ }
+}
+
+function maybeAutoComposeAfterBatch() {
+  if (!autoComposeAfterBatch.value || composingFinal.value) return
+  if (!autoComposeNodeIds.value.length) {
+    autoComposeAfterBatch.value = false
+    return
+  }
+  const states = autoComposeNodeIds.value.map((id) => {
+    const n = nodes.value.find((x: any) => x.id === id)
+    return String(n?.data?.status ?? '')
+  })
+  const allFinished = states.every((s) => s === 'done' || s === 'failed')
+  if (!allFinished) return
+
+  autoComposeAfterBatch.value = false
+  const doneCount = states.filter((s) => s === 'done').length
+  if (doneCount <= 0) {
+    ElMessage.error(lang.value === 'zh' ? '没有可拼接的成功镜头' : 'No successful shots to compose')
+    return
+  }
+  composeFinalVideo(true)
+}
+
+async function composeFinalVideo(auto = false) {
+  if (!projectId || composingFinal.value) return
+  composingFinal.value = true
+  try {
+    const { data } = await api.post(`/projects/${projectId}/canvas/compose`)
+    const taskId = data.task_id as number
+    if (!auto) {
+      ElMessage.info(lang.value === 'zh' ? '已开始拼接，请稍候…' : 'Compose started, please wait...')
+    }
+
+    const key = `compose:${taskId}`
+    if (_pollingTimers[key]) {
+      clearInterval(_pollingTimers[key])
+      delete _pollingTimers[key]
+    }
+    _pollingTimers[key] = setInterval(async () => {
+      try {
+        const { data: t } = await api.get(`/projects/${projectId}/tasks/${taskId}`)
+        if (t.status === 'completed') {
+          clearInterval(_pollingTimers[key])
+          delete _pollingTimers[key]
+          composingFinal.value = false
+          ElMessage.success(lang.value === 'zh' ? '拼接完成，正在跳转时间线' : 'Compose completed, opening timeline')
+          router.push(`/editor/${projectId}`)
+        } else if (t.status === 'failed') {
+          clearInterval(_pollingTimers[key])
+          delete _pollingTimers[key]
+          composingFinal.value = false
+          ElMessage.error(t.error_message || (lang.value === 'zh' ? '拼接失败' : 'Compose failed'))
+        }
+      } catch {
+        clearInterval(_pollingTimers[key])
+        delete _pollingTimers[key]
+        composingFinal.value = false
+        ElMessage.error(lang.value === 'zh' ? '拼接状态查询失败' : 'Failed to poll compose status')
+      }
+    }, 3000)
+  } catch (err: any) {
+    composingFinal.value = false
+    const detail = err?.response?.data?.detail
+    ElMessage.error(detail || (lang.value === 'zh' ? '发起拼接失败' : 'Failed to start compose'))
+  }
 }
 
 // ─── auto-layout ──────────────────────────────────────────────────────────
@@ -932,7 +1202,7 @@ function connectWS() {
           ElMessage.error('音乐生成失败')
         } else {
           stopPolling(nodeId)
-          _patchNodeStatus(nodeId, 'failed')
+          _patchNodeStatus(nodeId, 'failed', null, msg.error)
         }
       }
     } catch { /* ignore parse errors */ }
@@ -956,7 +1226,7 @@ const TEMPLATES = [
     icon: '💿',
     nodes: [
       { id: 'tpl-song1', type: 'song', position: { x: 80, y: 80 },
-        data: { title: '思念', mood: 'melancholic', bpm: 76, duration: 240, genre: 'Pop' } },
+        data: { title: '思念', mood: '忧郁', bpm: 76, duration: 240, genre: '流行' } },
       { id: 'tpl-char1', type: 'char', position: { x: 80, y: 300 },
         data: { name: '女主角', description: '情感丰富的女性角色', loraId: '', gender: 'female' } },
       { id: 'tpl-scene1', type: 'scene', position: { x: 400, y: 80 },
@@ -993,7 +1263,7 @@ const TEMPLATES = [
     icon: '🎧',
     nodes: [
       { id: 'tpl-song1', type: 'song', position: { x: 80, y: 80 },
-        data: { title: '霓虹节拍', mood: 'energetic', bpm: 130, duration: 180, genre: 'Electronic' } },
+        data: { title: '霓虹节拍', mood: '活力', bpm: 130, duration: 180, genre: '电子' } },
       { id: 'tpl-scene1', type: 'scene', position: { x: 80, y: 300 },
         data: { name: '都市街道夜景', style: '赛博朋克', location: '城市', lighting: '霓虹灯光' } },
       { id: 'tpl-s1', type: 'shot', position: { x: 420, y: 50 },
@@ -1115,7 +1385,7 @@ onUnmounted(() => {
         @keyup.enter="saveProjectTitle"
         @keyup.esc="editingTitle = false"
       />
-      <span v-else class="project-name" @dblclick="startEditTitle" title="双击重命名">{{ projectTitle || 'AIMV Canvas' }}</span>
+      <span v-else class="project-name" @dblclick="startEditTitle" title="双击重命名">{{ projectTitle || `AIMV ${ui.canvasTitle}` }}</span>
       <div class="topbar-center">
         <span class="canvas-badge">&#x2728; 自由画布</span>
         <div class="undo-redo">
@@ -1140,6 +1410,9 @@ onUnmounted(() => {
         <button class="btn-layout" @click="autoLayout()" title="自动整理节点布局">&#x25A6; 自动布局</button>
         <button class="btn-import" @click="importFromStoryboard()" title="从分镜脚本导入镜头节点">&#x21E9; 导入分镜</button>
         <button class="btn-gen-all" @click="generateAll()">&#x26A1; &#x751F;&#x6210;&#x7A7A;&#x767D;&#x955C;&#x5934;</button>
+        <button class="btn-compose" :disabled="composingFinal" @click="composeFinalVideo()">
+          {{ composingFinal ? (lang === 'zh' ? '🎬 拼接中…' : '🎬 Composing...') : (lang === 'zh' ? '🎬 拼接成片' : '🎬 Compose Final') }}
+        </button>
         <button class="btn-export" @click="router.push(`/editor/${projectId}`)">&#x5BFC;&#x51FA;&#x65F6;&#x95F4;&#x7EBF; &#x2192;</button>
         <button class="topbar-help" @click="showGuide = true" title="使用指南">?</button>
       </div>
@@ -1203,13 +1476,13 @@ onUnmounted(() => {
         <!-- Shot panel -->
         <template v-if="selectedNode?.type === 'shot'">
           <div class="panel-header">
-            <span class="panel-title">Shot #{{ String(selectedNode.data.index).padStart(2,'0') }}</span>
-            <span class="panel-status" :class="(selectedNode.data.status as string)">{{ selectedNode.data.status }}</span>
+            <span class="panel-title">{{ ui.shot }} #{{ String(selectedNode.data.index).padStart(2,'0') }}</span>
+            <span class="panel-status" :class="(selectedNode.data.status as string)">{{ statusLabel(selectedNode.data.status as string) }}</span>
           </div>
 
           <div class="panel-section">
             <div class="prompt-label-row">
-              <label>Prompt</label>
+              <label>{{ ui.prompt }}</label>
               <button
                 class="btn-ai-suggest"
                 :disabled="suggestingPrompt"
@@ -1262,6 +1535,19 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <div class="panel-primary-action">
+            <button
+              class="btn-regen"
+              :class="{ 'btn-retry': selectedNode.data.status === 'failed' }"
+              :disabled="selectedNode.data.status === 'generating'"
+              @click="generateShot(selectedNodeId!)"
+            >
+              <span v-if="selectedNode.data.status === 'generating'">&#x751F;&#x6210;&#x4E2D;&#x2026;</span>
+              <span v-else-if="selectedNode.data.status === 'failed'">&#x21BA; &#x91CD;&#x8BD5;</span>
+              <span v-else>&#x26A1; &#x751F;&#x6210;</span>
+            </button>
+          </div>
+
           <!-- Time anchor -->
           <div class="anchor-row">
             <span class="anchor-label">&#x23F1; 音乐锁点</span>
@@ -1274,12 +1560,12 @@ onUnmounted(() => {
 
           <!-- Music context -->
           <div v-if="(canvasContext as any)?.musicNodes?.length" class="panel-section">
-            <label class="layer-label music-label">&#x1F3B5; Music</label>
+            <label class="layer-label music-label">&#x1F3B5; {{ ui.music }}</label>
             <div class="context-block music-block">
               <div v-for="n in (canvasContext as any).musicNodes" :key="n.id" class="ctx-row">
                 <span class="ctx-name">{{ n.data.title }}</span>
                 <span class="ctx-tag">{{ n.data.bpm }} BPM</span>
-                <span class="ctx-tag mood-tag">{{ n.data.mood }}</span>
+                <span class="ctx-tag mood-tag">{{ moodLabel(n.data.mood) }}</span>
               </div>
               <div v-if="selectedNode.data.timeAnchor !== null" class="cb-row" style="margin-top:5px">
                 <span class="cb-k">&#x65F6;&#x95F4;&#x9501;&#x70B9;</span>
@@ -1288,12 +1574,12 @@ onUnmounted(() => {
             </div>
           </div>
           <div v-else class="panel-section no-ctx">
-            <span class="ctx-hint">&#x1F3B5; &#x672A;&#x8FDE;&#x63A5;&#x97F3;&#x4E50;&#x8282;&#x70B9;</span>
+            <span class="ctx-hint">&#x1F3B5; {{ lang === 'zh' ? '未连接音乐节点' : `No ${ui.musicNode} connected` }}</span>
           </div>
 
           <!-- Character context -->
           <div v-if="(canvasContext as any)?.charNodes?.length" class="panel-section">
-            <label class="layer-label char-label">&#x1F464; Characters ({{ (canvasContext as any).charNodes.length }})</label>
+            <label class="layer-label char-label">&#x1F464; {{ ui.characters }} ({{ (canvasContext as any).charNodes.length }})</label>
             <div class="context-block char-block">
               <div v-for="n in (canvasContext as any).charNodes" :key="n.id" class="ctx-row">
                 <span class="ctx-name">{{ n.data.name }}</span>
@@ -1302,12 +1588,12 @@ onUnmounted(() => {
             </div>
           </div>
           <div v-else class="panel-section no-ctx">
-            <span class="ctx-hint">&#x1F464; &#x672A;&#x8FDE;&#x63A5;&#x89D2;&#x8272;&#x8282;&#x70B9;</span>
+            <span class="ctx-hint">&#x1F464; {{ lang === 'zh' ? '未连接角色节点' : `No ${ui.characterNode} connected` }}</span>
           </div>
 
           <!-- Scene context -->
           <div v-if="(canvasContext as any)?.sceneNodes?.length" class="panel-section">
-            <label class="layer-label scene-label">&#x1F3D9; Scene</label>
+            <label class="layer-label scene-label">&#x1F3D9; {{ ui.scene }}</label>
             <div class="context-block scene-block">
               <div v-for="n in (canvasContext as any).sceneNodes" :key="n.id" class="ctx-row">
                 <span class="ctx-name">{{ n.data.name }}</span>
@@ -1317,12 +1603,12 @@ onUnmounted(() => {
             </div>
           </div>
           <div v-else class="panel-section no-ctx">
-            <span class="ctx-hint">&#x1F3D9; &#x672A;&#x8FDE;&#x63A5;&#x573A;&#x666F;&#x8282;&#x70B9;</span>
+            <span class="ctx-hint">&#x1F3D9; {{ lang === 'zh' ? '未连接场景节点' : `No ${ui.sceneNode} connected` }}</span>
           </div>
 
           <!-- Frame chaining -->
           <div class="panel-section">
-            <label class="layer-label canvas-label">&#x25C8; Frame Chaining</label>
+            <label class="layer-label canvas-label">&#x25C8; {{ ui.frameChaining }}</label>
             <div class="context-block canvas-block">
               <template v-if="(canvasContext as any)?.prevShots?.length">
                 <div class="cb-label">&#x2190; &#x524D;&#x9A71;</div>
@@ -1358,22 +1644,12 @@ onUnmounted(() => {
 
           <!-- Generation payload -->
           <div class="panel-section">
-            <label class="layer-label ai-label">&#x1F916; Generation Payload</label>
+            <label class="layer-label ai-label">&#x1F916; {{ ui.generationPayload }}</label>
             <pre class="payload-pre">{{ JSON.stringify(generationPayload?.canvas_context, null, 2) }}</pre>
           </div>
 
-          <div class="panel-actions">
-            <button
-              class="btn-regen"
-              :class="{ 'btn-retry': selectedNode.data.status === 'failed' }"
-              :disabled="selectedNode.data.status === 'generating'"
-              @click="generateShot(selectedNodeId!)"
-            >
-              <span v-if="selectedNode.data.status === 'generating'">&#x751F;&#x6210;&#x4E2D;&#x2026;</span>
-              <span v-else-if="selectedNode.data.status === 'failed'">&#x21BA; &#x91CD;&#x8BD5;</span>
-              <span v-else>&#x26A1; &#x751F;&#x6210;</span>
-            </button>
-            <button class="btn-copy" @click="copyPrompt(selectedNode.data.prompt as string)" title="复制 Prompt">&#x590D;&#x5236;</button>
+          <div class="panel-actions panel-actions-secondary">
+            <button class="btn-copy" @click="copyPrompt(selectedNode.data.prompt as string)" :title="lang === 'zh' ? '复制提示词' : 'Copy prompt'">&#x590D;&#x5236;</button>
             <button class="btn-copy" @click="duplicateShot()" title="复制节点">&#x2398;</button>
             <button class="btn-delete" @click="deleteSelectedNode()" title="&#x5220;&#x9664;&#x8282;&#x70B9; (Del)">&#x1F5D1;</button>
           </div>
@@ -1382,7 +1658,7 @@ onUnmounted(() => {
         <!-- Song panel -->
         <template v-else-if="selectedNode?.type === 'song'">
           <div class="panel-header">
-            <span class="panel-title">&#x1F3B5; Music</span>
+            <span class="panel-title">&#x1F3B5; {{ ui.music }}</span>
             <button class="btn-delete-sm" @click="deleteSelectedNode()" title="&#x5220;&#x9664;">&#x1F5D1;</button>
           </div>
           <div class="panel-section">
@@ -1402,8 +1678,18 @@ onUnmounted(() => {
                 @change="updateNodeData(selectedNodeId!, { bpm: Number(($event.target as HTMLInputElement).value) })" />
             </div>
           </div>
+          <div class="panel-section" style="padding:0;margin-top:8px">
+            <label>{{ lang === 'zh' ? '音乐模型' : 'Music Model' }}</label>
+            <select
+              class="panel-select"
+              :value="(selectedNode.data.musicModel as string ?? 'acestep')"
+              @change="updateNodeData(selectedNodeId!, { musicModel: ($event.target as HTMLSelectElement).value })"
+            >
+              <option v-for="m in MUSIC_MODELS" :key="m" :value="m">{{ MUSIC_MODEL_LABELS[m] ?? m }}</option>
+            </select>
+          </div>
           <div class="np-tags" style="padding: 0 16px 8px">
-            <span class="np-tag purple">{{ selectedNode.data.mood }}</span>
+            <span class="np-tag purple">{{ moodLabel(selectedNode.data.mood as string) }}</span>
             <span class="np-tag purple">{{ fmt(selectedNode.data.duration as number) }}</span>
           </div>
           <div class="panel-section">
@@ -1485,7 +1771,7 @@ onUnmounted(() => {
                 >
                   <option value="unknown">&#x81EA;&#x52A8;</option>
                   <option value="zh">&#x4E2D;&#x6587;</option>
-                  <option value="en">English</option>
+                  <option value="en">{{ lang === 'zh' ? '英文' : 'English' }}</option>
                   <option value="ja">&#x65E5;&#x672C;&#x8BED;</option>
                   <option value="ko">&#x97E9;&#x8BED;</option>
                 </select>
@@ -1530,7 +1816,7 @@ onUnmounted(() => {
         <!-- Char panel -->
         <template v-else-if="selectedNode?.type === 'char'">
           <div class="panel-header">
-            <span class="panel-title">&#x1F464; Character</span>
+            <span class="panel-title">&#x1F464; {{ ui.character }}</span>
             <button class="btn-delete-sm" @click="deleteSelectedNode()" title="&#x5220;&#x9664;">&#x1F5D1;</button>
           </div>
           <div class="panel-section">
@@ -1555,7 +1841,7 @@ onUnmounted(() => {
               @input="updateNodeData(selectedNodeId!, { description: ($event.target as HTMLTextAreaElement).value })" />
           </div>
           <div class="panel-section">
-            <label>LoRA &#x6A21;&#x578B; ID</label>
+            <label>{{ lang === 'zh' ? 'LoRA 模型 ID' : 'LoRA Model ID' }}</label>
             <input class="panel-input-line" style="font-family:monospace" :value="(selectedNode.data.loraId as string)"
               placeholder="e.g. neon_girl_v2"
               @input="updateNodeData(selectedNodeId!, { loraId: ($event.target as HTMLInputElement).value })" />
@@ -1569,12 +1855,29 @@ onUnmounted(() => {
               <span v-if="!(canvasContext as any)?.connectedShots?.length" class="cb-empty">&#x6682;&#x65E0;&#x8FDE;&#x63A5;</span>
             </div>
           </div>
+          <div class="panel-actions" style="margin-top:8px">
+            <button
+              class="btn-gen-char"
+              :class="{ 'btn-gen-char--fail': selectedNode.data.imageStatus === 'failed' }"
+              :disabled="selectedNode.data.imageStatus === 'generating'"
+              @click="generateCharacterImage(selectedNodeId!)"
+            >
+              <span v-if="selectedNode.data.imageStatus === 'generating'">{{ lang === 'zh' ? '角色图生成中…' : 'Generating character image…' }}</span>
+              <span v-else-if="selectedNode.data.imageStatus === 'done'">{{ lang === 'zh' ? '↺ 重新生成角色图' : '↺ Regenerate character image' }}</span>
+              <span v-else-if="selectedNode.data.imageStatus === 'failed'">{{ lang === 'zh' ? '↺ 重试生成角色图' : '↺ Retry character image' }}</span>
+              <span v-else>{{ lang === 'zh' ? '⚡ 生成角色图' : '⚡ Generate character image' }}</span>
+            </button>
+          </div>
+          <div v-if="selectedNode.data.imageStatus === 'done' && selectedNode.data.imageUrl" class="panel-section">
+            <label class="layer-label">&#x1F5BC; {{ lang === 'zh' ? '角色预览' : 'Character Preview' }}</label>
+            <img :src="selectedNode.data.imageUrl as string" alt="character preview" class="panel-image" />
+          </div>
         </template>
 
         <!-- Scene panel -->
         <template v-else-if="selectedNode?.type === 'scene'">
           <div class="panel-header">
-            <span class="panel-title">&#x1F3D9; Scene</span>
+            <span class="panel-title">&#x1F3D9; {{ ui.scene }}</span>
             <button class="btn-delete-sm" @click="deleteSelectedNode()" title="&#x5220;&#x9664;">&#x1F5D1;</button>
           </div>
           <div class="panel-section">
@@ -1607,6 +1910,23 @@ onUnmounted(() => {
               </span>
               <span v-if="!(canvasContext as any)?.connectedShots?.length" class="cb-empty">&#x6682;&#x65E0;&#x8FDE;&#x63A5;</span>
             </div>
+          </div>
+          <div class="panel-actions" style="margin-top:8px">
+            <button
+              class="btn-gen-char"
+              :class="{ 'btn-gen-char--fail': selectedNode.data.imageStatus === 'failed' }"
+              :disabled="selectedNode.data.imageStatus === 'generating'"
+              @click="generateSceneImage(selectedNodeId!)"
+            >
+              <span v-if="selectedNode.data.imageStatus === 'generating'">{{ lang === 'zh' ? '场景图生成中…' : 'Generating scene image…' }}</span>
+              <span v-else-if="selectedNode.data.imageStatus === 'done'">{{ lang === 'zh' ? '↺ 重新生成场景图' : '↺ Regenerate scene image' }}</span>
+              <span v-else-if="selectedNode.data.imageStatus === 'failed'">{{ lang === 'zh' ? '↺ 重试生成场景图' : '↺ Retry scene image' }}</span>
+              <span v-else>{{ lang === 'zh' ? '⚡ 生成场景图' : '⚡ Generate scene image' }}</span>
+            </button>
+          </div>
+          <div v-if="selectedNode.data.imageStatus === 'done' && selectedNode.data.imageUrl" class="panel-section">
+            <label class="layer-label">&#x1F5BC; {{ lang === 'zh' ? '场景预览' : 'Scene Preview' }}</label>
+            <img :src="selectedNode.data.imageUrl as string" alt="scene preview" class="panel-image" />
           </div>
         </template>
 
@@ -1733,7 +2053,7 @@ onUnmounted(() => {
               <div class="gs-icon">⚡</div>
               <div class="gs-body">
                 <div class="gs-title">生成 &amp; 导出</div>
-                <div class="gs-desc">选中镜头点击「生成」单独生成，或点击顶栏「⚡ 生成空白镜头」批量生成，完成后「导出时间线」合成完整 MV。</div>
+                <div class="gs-desc">选中镜头点击「生成」单独生成，或点击顶栏「⚡ 生成空白镜头」批量生成；全部完成后点击「🎬 拼接成片」，再去「导出时间线」。</div>
               </div>
             </div>
           </div>
@@ -1824,6 +2144,15 @@ onUnmounted(() => {
   white-space: nowrap; transition: background .15s, border-color .15s;
 }
 .btn-gen-all:hover { background: rgba(141,92,255,.22); border-color: rgba(141,92,255,.55); }
+.btn-compose {
+  padding: 5px 13px; border-radius: 8px;
+  border: 0.5px solid rgba(16,185,129,.45);
+  background: rgba(16,185,129,.12);
+  color: #34d399; font-size: .78rem; cursor: pointer;
+  white-space: nowrap; transition: background .15s, border-color .15s, opacity .15s;
+}
+.btn-compose:hover { background: rgba(16,185,129,.2); border-color: rgba(16,185,129,.62); }
+.btn-compose:disabled { opacity: .55; cursor: not-allowed; }
 .saving-hint { font-size: .7rem; color: rgba(255,255,255,.28); white-space: nowrap; }
 .loading-overlay {
   position: absolute; inset: 0; z-index: 100;
@@ -2045,6 +2374,15 @@ label {
 .panel-actions {
   display: flex; gap: 6px; padding: 12px 16px;
   border-top: 1px solid rgba(255,255,255,.05); flex-shrink: 0;
+}
+.panel-primary-action {
+  padding: 8px 16px 10px;
+}
+.panel-primary-action .btn-regen {
+  width: 100%;
+}
+.panel-actions-secondary {
+  justify-content: flex-end;
 }
 .btn-regen {
   flex: 1; padding: 9px; border-radius: 8px; border: none;
@@ -2289,9 +2627,27 @@ label {
 .btn-gen-music:not(:disabled):hover { opacity: .88; }
 .btn-gen-music:not(:disabled):active { transform: scale(0.98); }
 .btn-gen-music--fail { background: linear-gradient(135deg,#ef4444,#f472b6) !important; }
+.btn-gen-char {
+  flex: 1; padding: 9px; border-radius: 8px; border: none;
+  background: linear-gradient(135deg, #6d8bff, #7c4dff);
+  color: rgba(255,255,255,.95); font-weight: 700; font-size: .82rem; cursor: pointer;
+  width: 100%; transition: opacity .15s, transform .1s;
+}
+.btn-gen-char:disabled { opacity: .4; cursor: not-allowed; }
+.btn-gen-char:not(:disabled):hover { opacity: .88; }
+.btn-gen-char:not(:disabled):active { transform: scale(0.98); }
+.btn-gen-char--fail { background: linear-gradient(135deg,#ef4444,#f472b6) !important; }
 .panel-audio {
   width: 100%; border-radius: 8px; display: block;
   background: rgba(0,0,0,.3);
+}
+.panel-image {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(0,0,0,.25);
 }
 
 /* import from storyboard button */

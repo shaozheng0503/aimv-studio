@@ -23,69 +23,72 @@ class ACEStepAdapter(BaseModelAdapter):
         from app.utils.storage import upload_file
 
         p = request.params or {}
-        caption = p.get("description") or request.prompt or ""
+        tags = p.get("description") or request.prompt or ""
         lyrics = p.get("lyrics", "") or ""
         bpm = float(p.get("bpm") or 0)
         duration = float(p.get("duration") or -1)
-        vocal_language = p.get("vocal_language", "unknown") or "unknown"
         instrumental = bool(p.get("instrumental", False))
+        output_format = (p.get("format") or "wav").lower()
+        if output_format not in {"wav", "mp3", "flac", "ogg"}:
+            output_format = "wav"
+
+        # ACEStep Gradio endpoint supports LoRA selection.
+        lora_name_or_path = p.get("lora_name_or_path", "none") or "none"
+        lora_weight = float(p.get("lora_weight", 1.0) or 1.0)
 
         if instrumental and not lyrics.strip():
-            lyrics = "[Instrumental]"
+            lyrics = "[inst]"
 
-        # infer_steps: 8 = turbo (fast, lower quality), 20-30 = standard quality.
-        # Use 20 for production MV output; allow override via params for testing.
-        infer_steps = float(p.get("infer_steps", 20))
+        if bpm > 0 and "bpm" not in tags.lower():
+            tags = f"{tags}, {int(round(bpm))} BPM" if tags else f"{int(round(bpm))} BPM"
+
+        infer_steps = int(p.get("infer_steps", 60))
+        guidance_scale = float(p.get("guidance_scale", 15))
+        scheduler_type = p.get("scheduler_type", "euler")
+        cfg_type = p.get("cfg_type", "apg")
+        omega_scale = float(p.get("omega_scale", 10))
+        guidance_interval = float(p.get("guidance_interval", 0.5))
+        guidance_interval_decay = float(p.get("guidance_interval_decay", 0))
+        min_guidance_scale = float(p.get("min_guidance_scale", 3))
+        use_erg_tag = bool(p.get("use_erg_tag", True))
+        use_erg_lyric = bool(p.get("use_erg_lyric", False))
+        use_erg_diffusion = bool(p.get("use_erg_diffusion", True))
+        guidance_scale_text = float(p.get("guidance_scale_text", 0))
+        guidance_scale_lyric = float(p.get("guidance_scale_lyric", 0))
+        audio2audio_enable = bool(p.get("audio2audio_enable", False))
+        ref_audio_strength = float(p.get("ref_audio_strength", 0.5))
+
+        manual_seeds = p.get("manual_seeds", None)
+        oss_steps = p.get("oss_steps", None)
+        ref_audio_input = p.get("ref_audio_input", None)
 
         client = Client(base_url)
         result = client.predict(
-            param_0=caption,
-            param_1=lyrics,
-            param_2=bpm,
-            param_3="",        # key_scale (auto)
-            param_4="",        # time_sig (auto)
-            param_5=vocal_language,
-            param_6=infer_steps,   # infer_steps (20 = standard quality)
-            param_7=7.0,       # guidance_scale
-            param_8=True,      # random_seed
-            param_9="-1",      # seed
-            param_10=None,     # reference_audio (optional)
-            param_11=duration,
-            param_12=1,        # batch_size (must be int, server uses range())
-            param_13=None,     # src_audio (optional)
-            param_14="",       # lm_code_prompt
-            param_15=0.0,      # repainting_start
-            param_16=-1.0,     # repainting_end
-            param_17="Fill the audio semantic mask based on the given conditions:",
-            param_18=1.0,      # audio_cover_strength
-            param_19="text2music",
-            param_20=False,    # use_adg
-            param_21=0.0,      # cfg_interval_start
-            param_22=1.0,      # cfg_interval_end
-            param_23=3.0,      # shift
-            param_24="ode",    # infer_method
-            param_25="",       # custom_timesteps
-            param_26="mp3",    # audio_format
-            param_27=0.85,     # lm_temperature
-            param_28=False,    # think_checkbox — CoT causes CUDA assertion on short seqs
-            param_29=2.0,      # lm_cfg_scale
-            param_30=0.0,      # lm_top_k
-            param_31=0.9,      # lm_top_p
-            param_32="NO USER INPUT",  # lm_negative_prompt
-            param_33=True,     # use_cot_metas
-            param_34=True,     # use_cot_caption (description rewrite)
-            param_35=True,     # use_cot_language
-            # param_36 not exposed in API
-            param_37=False,    # constrained_decoding_debug
-            param_38=True,     # allow_lm_batch (parallel thinking)
-            param_39=False,    # auto_score
-            param_40=False,    # auto_lrc
-            param_41=0.5,      # score_scale
-            param_42=8.0,      # lm_batch_chunk_size
-            param_43="vocals", # track_name
-            param_44=[],       # complete_track_classes
-            param_45=False,    # auto_generate
-            api_name="/generation_wrapper",
+            format=output_format,
+            audio_duration=duration,
+            prompt=tags,
+            lyrics=lyrics,
+            infer_step=infer_steps,
+            guidance_scale=guidance_scale,
+            scheduler_type=scheduler_type,
+            cfg_type=cfg_type,
+            omega_scale=omega_scale,
+            manual_seeds=manual_seeds,
+            guidance_interval=guidance_interval,
+            guidance_interval_decay=guidance_interval_decay,
+            min_guidance_scale=min_guidance_scale,
+            use_erg_tag=use_erg_tag,
+            use_erg_lyric=use_erg_lyric,
+            use_erg_diffusion=use_erg_diffusion,
+            oss_steps=oss_steps,
+            guidance_scale_text=guidance_scale_text,
+            guidance_scale_lyric=guidance_scale_lyric,
+            audio2audio_enable=audio2audio_enable,
+            ref_audio_strength=ref_audio_strength,
+            ref_audio_input=ref_audio_input,
+            lora_name_or_path=lora_name_or_path,
+            lora_weight=lora_weight,
+            api_name="/__call__",
         )
 
         # result[0] is the first audio sample filepath
@@ -98,9 +101,23 @@ class ACEStepAdapter(BaseModelAdapter):
         if not os.path.exists(audio_path):
             raise RuntimeError(f"ACEStep audio file not found at: {audio_path}")
 
-        file_url = upload_file(audio_path, "audio/mpeg")
+        content_type = {
+            "wav": "audio/wav",
+            "flac": "audio/flac",
+            "ogg": "audio/ogg",
+            "mp3": "audio/mpeg",
+        }.get(output_format, "audio/wav")
+        file_url = upload_file(audio_path, content_type)
         return GenerateResult(
             file_url=file_url,
             duration=None,
-            metadata={"model": "acestep-v15-turbo", "caption": caption},
+            metadata={
+                "model": "acestep",
+                "base_url": base_url,
+                "tags": tags,
+                "format": output_format,
+                "duration": duration,
+                "lora_name_or_path": lora_name_or_path,
+                "lora_weight": lora_weight,
+            },
         )

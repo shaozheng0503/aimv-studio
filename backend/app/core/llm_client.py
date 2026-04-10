@@ -15,6 +15,7 @@ import os
 import re
 from typing import AsyncIterator
 from app.config import get_settings
+from app.adapters.google_auth import get_token_and_project
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -78,6 +79,7 @@ class LLMClient:
         s = self.settings
         return bool(
             s.gemini_api_key
+            or s.google_sa_json
             or (s.google_sa_path and os.path.isfile(s.google_sa_path))
         )
 
@@ -259,9 +261,8 @@ class LLMClient:
         """
         if self.settings.gemini_api_key:
             return {}, {"key": self.settings.gemini_api_key}
-        if self.settings.google_sa_path:
-            from app.adapters.google_image import _get_access_token
-            token, _ = _get_access_token(self.settings.google_sa_path)
+        if self.settings.google_sa_json or self.settings.google_sa_path:
+            token, _ = get_token_and_project(self.settings)
             return {"Authorization": f"Bearer {token}"}, {}
         return {}, {}
 

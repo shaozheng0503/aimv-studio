@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
+import { storeToRefs } from 'pinia'
+import { useLangStore } from '@/stores/lang'
 
 defineProps<{
   data: {
@@ -10,22 +12,25 @@ defineProps<{
   }
   selected?: boolean
 }>()
+
+const { lang } = storeToRefs(useLangStore())
 </script>
 
 <template>
   <div class="char-node" :class="{ selected }">
+    <Handle type="target" :position="Position.Left" class="vf-handle in-handle" />
     <Handle type="source" :position="Position.Right" class="vf-handle char-handle" />
 
     <div class="cn-header">
       <div class="cn-avatar">{{ data.gender === 'female' ? '♀' : data.gender === 'male' ? '♂' : '◎' }}</div>
       <div class="cn-info">
-        <div class="cn-type">Character</div>
+        <div class="cn-type">{{ lang === 'zh' ? '角色' : 'Character' }}</div>
         <div class="cn-name">{{ data.name }}</div>
       </div>
     </div>
     <p class="cn-desc">{{ data.description }}</p>
     <div class="cn-lora">
-      <span class="lora-label">LoRA</span>
+      <span class="lora-label">{{ lang === 'zh' ? 'LoRA 模型' : 'LoRA' }}</span>
       <span class="lora-id">{{ data.loraId || '—' }}</span>
     </div>
   </div>
@@ -83,6 +88,12 @@ defineProps<{
 .vf-handle.char-handle {
   width: 9px !important; height: 9px !important;
   background: rgba(92,159,255,.65) !important;
+  border: 1.5px solid rgba(10,14,30,.9) !important;
+  border-radius: 50% !important;
+}
+.vf-handle.in-handle {
+  width: 9px !important; height: 9px !important;
+  background: rgba(255,255,255,.2) !important;
   border: 1.5px solid rgba(10,14,30,.9) !important;
   border-radius: 50% !important;
 }

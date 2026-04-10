@@ -198,21 +198,54 @@ async function startCreating() {
 }
 
 // ─── carousel ────────────────────────────────────────────────────────────────
-interface SlideItem { url: string; title: string; desc: string; pic: string }
+interface SlideItem {
+  url: string
+  title: string
+  desc: string
+  pic: string
+  fallbackPic: string
+}
 
 const videoSources = [
   { bvid: 'BV1xjvvBwEZq', url: 'https://www.bilibili.com/video/BV1xjvvBwEZq/',
     fallback: { title: '大二期末作品MV《几分之几》', desc: '感谢真诚的影像，汇集每一个真诚创作的你。第一次和好朋友担任主创创作的作品。', pic: 'https://i1.hdslb.com/bfs/archive/b9316f0f07d2b17a5c9cf2231a570f27ade30e9e.jpg' } },
+  { bvid: 'BV1A4yKBNEt7', url: 'https://www.bilibili.com/video/BV1A4yKBNEt7/',
+    fallback: { title: '《大城小爱》王力宏 | R&B X Neo soul | 老歌新鞭 | SUNO V5', desc: 'SUNO大人太强了，这个版本的真的非常耐听，尤其是后半段的编排爽到飞起！', pic: 'https://i2.hdslb.com/bfs/archive/fb5cdf9b33c79ce0272cf95880d1a356f0d389ca.jpg' } },
   { bvid: 'BV1gpyGBwEie', url: 'https://www.bilibili.com/video/BV1gpyGBwEie/',
     fallback: { title: '他不懂（RNB版）', desc: '当rnb碰到张杰的《他不懂》', pic: 'https://i0.hdslb.com/bfs/archive/395908458c09a21a72da46fec62f0abaab910e8b.jpg' } },
-  { bvid: 'BV1psQ8YfEXU', url: 'https://www.bilibili.com/video/BV1psQ8YfEXU/',
-    fallback: { title: '【4K60FPS】IU李知恩《Blueming》超甜美现场！', desc: '官方现场。IU真的很可爱，这首《Blueming》是IU很经典的一首歌曲。', pic: 'https://i1.hdslb.com/bfs/archive/cb3efec92dfe0c03f262e88bf2b7a7b4daa47b52.jpg' } },
+  { bvid: 'BV1vRC7BDEyN', url: 'https://www.bilibili.com/video/BV1vRC7BDEyN/',
+    fallback: { title: '心太软但是R&B', desc: 'Suno AI 改编', pic: 'https://i0.hdslb.com/bfs/archive/2630cee041d98572d10678c7d7b74efc7fe4f2f2.jpg' } },
 ]
 
-const slides = ref<SlideItem[]>(videoSources.map(s => ({ url: s.url, ...s.fallback })))
+const slides = ref<SlideItem[]>(
+  videoSources.map(s => ({ url: s.url, ...s.fallback, fallbackPic: s.fallback.pic }))
+)
 const activeIndex = ref(0)
 let carouselTimer: ReturnType<typeof setInterval> | null = null
 let bpmTimer: ReturnType<typeof setInterval> | null = null
+
+const COVER_PROXY_PREFIX = 'https://images.weserv.nl/?url='
+const COVER_PLACEHOLDER =
+  'data:image/svg+xml;charset=UTF-8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#151527"/>
+          <stop offset="100%" stop-color="#2b1f4d"/>
+        </linearGradient>
+      </defs>
+      <rect width="1280" height="720" fill="url(#g)"/>
+      <text x="50%" y="48%" dominant-baseline="middle" text-anchor="middle"
+            font-family="Inter,Arial,sans-serif" font-size="42" fill="#ffffff" fill-opacity="0.9">
+        AIMV Music Video Preview
+      </text>
+      <text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
+            font-family="Inter,Arial,sans-serif" font-size="24" fill="#ffffff" fill-opacity="0.55">
+        Cover temporarily unavailable
+      </text>
+    </svg>`
+  )
 
 function goTo(i: number) { activeIndex.value = ((i % slides.value.length) + slides.value.length) % slides.value.length }
 function prevSlide() { goTo(activeIndex.value - 1); restartCarousel() }
@@ -222,14 +255,46 @@ function startCarousel() { carouselTimer = setInterval(() => goTo(activeIndex.va
 function stopCarousel() { if (carouselTimer) { clearInterval(carouselTimer); carouselTimer = null } }
 function restartCarousel() { stopCarousel(); startCarousel() }
 
+function toSafeCoverUrl(pic: string): string {
+  if (!pic) return COVER_PLACEHOLDER
+  try {
+    const u = new URL(pic)
+    if (u.hostname.endsWith('hdslb.com')) {
+      return `${COVER_PROXY_PREFIX}${encodeURIComponent(pic.replace(/^https?:\/\//, ''))}`
+    }
+    return pic
+  } catch {
+    return pic
+  }
+}
+
+function onSlideImageError(e: Event, fallbackPic: string) {
+  const el = e.target as HTMLImageElement | null
+  if (!el) return
+  if (el.dataset.fallbackTried === '1') {
+    el.src = COVER_PLACEHOLDER
+    return
+  }
+  el.dataset.fallbackTried = '1'
+  el.src = toSafeCoverUrl(fallbackPic)
+}
+
 async function fetchSlide(src: typeof videoSources[0]): Promise<SlideItem> {
   try {
     const r = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${src.bvid}`)
     const j = await r.json()
     if (j.code !== 0) throw new Error()
     const d = j.data
-    return { url: src.url, title: String(d.title || src.fallback.title).replace(/[<>]/g, '').trim(), desc: String(d.desc || src.fallback.desc).replace(/[<>]/g, '').trim(), pic: d.pic?.startsWith('http') ? d.pic : src.fallback.pic }
-  } catch { return { url: src.url, ...src.fallback } }
+    return {
+      url: src.url,
+      title: String(d.title || src.fallback.title).replace(/[<>]/g, '').trim(),
+      desc: String(d.desc || src.fallback.desc).replace(/[<>]/g, '').trim(),
+      pic: toSafeCoverUrl(d.pic?.startsWith('http') ? d.pic : src.fallback.pic),
+      fallbackPic: src.fallback.pic,
+    }
+  } catch {
+    return { url: src.url, ...src.fallback, pic: toSafeCoverUrl(src.fallback.pic), fallbackPic: src.fallback.pic }
+  }
 }
 
 // ─── agent pipeline ───────────────────────────────────────────────────────────
@@ -475,14 +540,87 @@ function animateStats() {
 }
 
 // ─── misc static ─────────────────────────────────────────────────────────────
-const galleryItems = [
-  { title: 'K-Pop Visual Edit',    artist: 'Cyberpunk style',      bg: 'linear-gradient(135deg,#ff6b9d,#c051e0)', icon: '🎤', tag: 'K-Pop' },
-  { title: 'Chinese Classical',    artist: 'Traditional ink',      bg: 'linear-gradient(135deg,#2d5016,#8b6914)', icon: '🎼', tag: '国风' },
-  { title: 'Indie Film Aesthetic', artist: 'Golden hour',          bg: 'linear-gradient(135deg,#3a3a3a,#8b7355)', icon: '🎬', tag: 'Indie' },
-  { title: 'Electronic Dance',     artist: 'Neon club scene',      bg: 'linear-gradient(135deg,#00e5ff,#aa00ff)', icon: '⚡', tag: 'EDM' },
-  { title: 'Urban R&B',            artist: 'Street photography',   bg: 'linear-gradient(135deg,#667eea,#764ba2)', icon: '🎵', tag: 'R&B' },
-  { title: 'Fantasy Epic',         artist: 'Cinematic orchestral', bg: 'linear-gradient(135deg,#a18cd1,#fbc2eb)', icon: '✨', tag: 'Epic' },
+const GALLERY_PLACEHOLDER =
+  'data:image/svg+xml;charset=UTF-8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#121225"/>
+          <stop offset="100%" stop-color="#233046"/>
+        </linearGradient>
+      </defs>
+      <rect width="1280" height="720" fill="url(#g)"/>
+      <text x="50%" y="47%" dominant-baseline="middle" text-anchor="middle"
+            font-family="Geist,Inter,Arial,sans-serif" font-size="44" fill="#ffffff" fill-opacity="0.92">
+        AIMV Veo Mock
+      </text>
+      <text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
+            font-family="Geist,Inter,Arial,sans-serif" font-size="22" fill="#ffffff" fill-opacity="0.62">
+        Preview frame unavailable
+      </text>
+    </svg>`
+  )
+
+type GalleryItem = {
+  key: string
+  title: string
+  artist: string
+  tag: string
+  cover: string
+  prompt: string
+  generated_by?: string
+}
+
+const galleryDefaults: GalleryItem[] = [
+  { key: 'kpop',    title: 'K-Pop Visual Edit',    artist: 'Cyberpunk style',      tag: 'K-Pop', cover: 'https://picsum.photos/seed/aimv-veo-kpop-neon/1280/720', prompt: 'Neon rooftop dance scene, high-energy camera movement, cyberpunk lights', generated_by: 'mock' },
+  { key: 'guofeng', title: 'Chinese Classical',    artist: 'Traditional ink',      tag: '国风',  cover: 'https://picsum.photos/seed/aimv-veo-guofeng-mist/1280/720', prompt: 'Chinese classical courtyard, ink-wash atmosphere, cinematic dolly shot', generated_by: 'mock' },
+  { key: 'indie',   title: 'Indie Film Aesthetic', artist: 'Golden hour',          tag: 'Indie', cover: 'https://picsum.photos/seed/aimv-veo-indie-goldenhour/1280/720', prompt: 'Golden-hour street portrait, handheld film texture, emotional close-up', generated_by: 'mock' },
+  { key: 'edm',     title: 'Electronic Dance',     artist: 'Neon club scene',      tag: 'EDM',   cover: 'https://picsum.photos/seed/aimv-veo-edm-club/1280/720', prompt: 'Night club wide shot, laser beams and haze, beat-synced movement', generated_by: 'mock' },
+  { key: 'rnb',     title: 'Urban R&B',            artist: 'Street photography',   tag: 'R&B',   cover: 'https://picsum.photos/seed/aimv-veo-rnb-urban/1280/720', prompt: 'Urban night alley, soft backlight portrait, smooth cinematic pan', generated_by: 'mock' },
+  { key: 'epic',    title: 'Fantasy Epic',         artist: 'Cinematic orchestral', tag: 'Epic',  cover: 'https://picsum.photos/seed/aimv-veo-epic-fantasy/1280/720', prompt: 'Epic fantasy valley, volumetric light and fog, heroic wide composition', generated_by: 'mock' },
 ]
+
+const galleryItems = ref<GalleryItem[]>(galleryDefaults.map(i => ({ ...i })))
+let veoGalleryPollTimer: ReturnType<typeof setInterval> | null = null
+
+async function fetchVeoGallery(trigger = true) {
+  try {
+    const { data } = await api.get('/home/veo-gallery', { params: { trigger } })
+    if (Array.isArray(data?.items) && data.items.length) {
+      galleryItems.value = data.items.map((x: any) => ({ ...x }))
+    }
+    if (data?.generating && !veoGalleryPollTimer) {
+      let tries = 0
+      veoGalleryPollTimer = setInterval(async () => {
+        tries += 1
+        await fetchVeoGallery(false)
+        if (tries > 20) {
+          if (veoGalleryPollTimer) {
+            clearInterval(veoGalleryPollTimer)
+            veoGalleryPollTimer = null
+          }
+        }
+      }, 4000)
+    } else if (!data?.generating && veoGalleryPollTimer) {
+      clearInterval(veoGalleryPollTimer)
+      veoGalleryPollTimer = null
+    }
+  } catch {
+    // keep local mock covers
+  }
+}
+
+function onGalleryImageError(e: Event) {
+  const img = e.target as HTMLImageElement | null
+  if (!img) return
+  if (img.dataset.fallbackTried === '1') {
+    img.src = GALLERY_PLACEHOLDER
+    return
+  }
+  img.dataset.fallbackTried = '1'
+  img.src = GALLERY_PLACEHOLDER
+}
 
 const avatarColors = ['#8d5cff', '#f3b2ff', '#5cf3ff', '#ff9bd1', '#ffcf5c']
 
@@ -534,6 +672,7 @@ onMounted(() => {
   }
 
   Promise.all(videoSources.map(fetchSlide)).then(items => { slides.value = items })
+  fetchVeoGallery(true)
   startCarousel()
 
   agentTimer = setInterval(() => { agentActive.value = (agentActive.value + 1) % 4 }, 2200)
@@ -575,6 +714,10 @@ onUnmounted(() => {
   if (playheadRAF) cancelAnimationFrame(playheadRAF)
   window.removeEventListener('scroll', onScroll)
   if (fadeObserver) fadeObserver.disconnect()
+  if (veoGalleryPollTimer) {
+    clearInterval(veoGalleryPollTimer)
+    veoGalleryPollTimer = null
+  }
 })
 </script>
 
@@ -683,7 +826,14 @@ onUnmounted(() => {
               <div class="carousel-slides" :style="{ transform: `translateX(-${activeIndex * 100}%)` }">
                 <a v-for="(slide, idx) in slides" :key="idx" class="carousel-slide"
                    :href="slide.url" target="_blank" rel="noopener noreferrer">
-                  <div class="slide-media"><img :src="slide.pic" :alt="slide.title" loading="lazy" /></div>
+                  <div class="slide-media">
+                    <img
+                      :src="slide.pic"
+                      :alt="slide.title"
+                      loading="lazy"
+                      @error="(e) => onSlideImageError(e, slide.fallbackPic)"
+                    />
+                  </div>
                   <div class="slide-info"><h3>{{ slide.title }}</h3><p>{{ slide.desc }}</p></div>
                 </a>
               </div>
@@ -924,13 +1074,16 @@ onUnmounted(() => {
           </div>
           <div class="gallery-grid">
             <div class="gallery-tile" v-for="item in galleryItems" :key="item.title">
-              <div class="gallery-tile-img" :style="{ background: item.bg }">
-                <span class="gallery-tile-icon">{{ item.icon }}</span>
+              <div class="gallery-tile-img">
+                <img :src="item.cover" :alt="item.title" loading="lazy" @error="onGalleryImageError" />
+                <div class="gallery-tile-overlay"></div>
                 <span class="gallery-tile-tag">{{ item.tag }}</span>
+                <span class="gallery-tile-badge">Veo Mock</span>
               </div>
               <div class="gallery-tile-meta">
                 <span>{{ item.title }}</span>
                 <small>{{ item.artist }}</small>
+                <p class="gallery-tile-prompt">{{ item.prompt }}</p>
               </div>
             </div>
           </div>
@@ -1098,7 +1251,7 @@ section { padding:72px 0; }
 .carousel-slides { display:flex;transition:transform .4s ease; }
 .carousel-slide { min-width:100%;display:grid;color:inherit; }
 .slide-media { background:#0a0a10; }
-.slide-media img { width:100%;height:auto;display:block; }
+.slide-media img { width:100%;aspect-ratio:16/9;object-fit:cover;display:block; }
 .slide-info { padding:16px 20px 20px;text-align:center; }
 .slide-info h3 { margin-bottom:8px;font-size:1.05rem; }
 .slide-info p { color:var(--text-muted);font-size:.9rem;line-height:1.5; }
@@ -1238,7 +1391,17 @@ section { padding:72px 0; }
 /* ── Gallery ───────────────────────────────────────────────────────────────── */
 .gallery-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px; }
 .gallery-tile { border-radius:18px;border:1px solid var(--border);overflow:hidden;background:#11111a; }
-.gallery-tile-img { height:140px;width:100%; }
+.gallery-tile-img { position:relative;height:200px;width:100%;overflow:hidden; }
+.gallery-tile-img img {
+  width:100%;height:100%;object-fit:cover;display:block;
+  transform:scale(1.02);transition:transform .35s ease;
+}
+.gallery-tile:hover .gallery-tile-img img { transform:scale(1.08); }
+.gallery-tile-overlay {
+  position:absolute;inset:0;
+  background:linear-gradient(to top,rgba(5,5,10,.72) 0%,rgba(5,5,10,.1) 52%,rgba(5,5,10,.06) 100%);
+  pointer-events:none;
+}
 .gallery-tile > div { padding:12px 14px 16px; }
 .gallery-tile span { display:block;font-size:.9rem;font-weight:500;margin-bottom:4px; }
 .gallery-tile small { color:var(--text-muted);font-size:.8rem; }
@@ -1287,16 +1450,23 @@ section { padding:72px 0; }
   box-shadow:0 4px 24px rgba(0,0,0,.4); }
 
 /* ── Gallery tile icon & tag ───────────────────────────────────────────────── */
-.gallery-tile-img { display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:10px;position:relative; }
-.gallery-tile-icon { font-size:2.8rem;line-height:1;
-  filter:drop-shadow(0 2px 10px rgba(0,0,0,.6)); }
 .gallery-tile-tag { font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
   background:rgba(0,0,0,.45);color:rgba(255,255,255,.9);
-  padding:3px 10px;border-radius:999px;backdrop-filter:blur(4px); }
+  padding:3px 10px;border-radius:999px;backdrop-filter:blur(4px);
+  position:absolute;left:12px;top:10px;z-index:2; }
+.gallery-tile-badge {
+  position:absolute;right:10px;top:10px;z-index:2;
+  font-size:.65rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:#c4b5fd;background:rgba(25,18,44,.68);border:1px solid rgba(167,139,250,.42);
+  padding:3px 8px;border-radius:999px;
+}
 .gallery-tile-meta { padding:12px 14px 16px; }
 .gallery-tile-meta span { display:block;font-size:.9rem;font-weight:500;margin-bottom:4px; }
 .gallery-tile-meta small { color:var(--text-muted);font-size:.8rem; }
+.gallery-tile-prompt {
+  margin-top:8px;font-size:.74rem;line-height:1.45;color:rgba(255,255,255,.52);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
 
 /* ── Testimonial avatar initials ───────────────────────────────────────────── */
 .t-avatar { width:42px;height:42px;border-radius:50%;display:flex;align-items:center;

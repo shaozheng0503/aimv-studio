@@ -15,6 +15,7 @@ import asyncio
 import base64
 import os
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -72,21 +73,39 @@ def _call_imagen(
         f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}"
         f"/locations/us-central1/publishers/google/models/{api_model}:predict"
     )
-    resp = httpx.post(
-        url,
-        headers={**headers, "Content-Type": "application/json"},
-        json={
-            "instances": [{"prompt": prompt}],
-            "parameters": {"sampleCount": 1, "aspectRatio": aspect},
-        },
-        timeout=90,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    preds = data.get("predictions", [])
-    if not preds:
-        raise RuntimeError(f"No predictions from Imagen: {data}")
-    return base64.b64decode(preds[0]["bytesBase64Encoded"])
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                url,
+                headers={**headers, "Content-Type": "application/json"},
+                json={
+                    "instances": [{"prompt": prompt}],
+                    "parameters": {"sampleCount": 1, "aspectRatio": aspect},
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            preds = data.get("predictions", [])
+            if preds and preds[0].get("bytesBase64Encoded"):
+                return base64.b64decode(preds[0]["bytesBase64Encoded"])
+            # Some transient backend responses can be 200 with empty predictions.
+            raise RuntimeError(f"No predictions from Imagen: {data}")
+        except httpx.HTTPStatusError as e:
+            last_err = e
+            # Retry only transient server-side failures.
+            if e.response.status_code >= 500 and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(1.2 * (attempt + 1))
+                continue
+            raise
+    raise RuntimeError(str(last_err) if last_err else "Imagen request failed")
 
 
 def _generate_sync(request: GenerateRequest, settings) -> GenerateResult:

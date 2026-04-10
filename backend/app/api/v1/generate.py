@@ -57,7 +57,7 @@ async def generate_image(
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_owned_project(project_id, user, db)
-    model = req.model_override or "z-image"
+    model = req.model_override or "gemini-image"
     return await _create_task(db, project, "image", model, _merge_prompt(req))
 
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
+import { storeToRefs } from 'pinia'
+import { useLangStore } from '@/stores/lang'
 
 defineProps<{
   data: {
@@ -10,6 +12,8 @@ defineProps<{
   }
   selected?: boolean
 }>()
+
+const { lang } = storeToRefs(useLangStore())
 </script>
 
 <template>
@@ -22,7 +26,7 @@ defineProps<{
         <span class="scn-icon">◈</span>
       </div>
       <div class="scn-meta">
-        <span class="scn-type">Scene</span>
+        <span class="scn-type">{{ lang === 'zh' ? '场景' : 'Scene' }}</span>
       </div>
     </div>
     <div class="scn-name">{{ data.name }}</div>

@@ -69,13 +69,18 @@ class CanvasShotResponse(BaseModel):
     status: str
     task_id: int | None
     video_url: str | None
+    error_message: str | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_orm_with_media(cls, shot: CanvasShot) -> "CanvasShotResponse":
+    def from_orm_with_media(
+        cls,
+        shot: CanvasShot,
+        error_message: str | None = None,
+    ) -> "CanvasShotResponse":
         return cls(
             id=shot.id,
             node_id=shot.node_id,
@@ -86,6 +91,7 @@ class CanvasShotResponse(BaseModel):
             status=shot.status,
             task_id=shot.task_id,
             video_url=shot.media.file_url if shot.media else None,
+            error_message=error_message,
             created_at=shot.created_at,
             updated_at=shot.updated_at,
         )
@@ -100,6 +106,13 @@ class CanvasResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CanvasComposeResponse(BaseModel):
+    task_id: int
+    status: str
+    clips: int
+    has_audio: bool
 
 
 # ─── endpoints ────────────────────────────────────────────────────────────────
@@ -322,6 +335,79 @@ async def generate_all_pending(
     return {"dispatched": len(dispatched), "node_ids": [s.node_id for s in dispatched]}
 
 
+@router.post("/compose", response_model=CanvasComposeResponse)
+async def compose_canvas_videos(
+    project_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compose all generated shot clips on the canvas into one final video."""
+    await get_owned_project(project_id, user, db)
+    canvas = await _get_or_create_canvas(project_id, db)
+
+    shots_result = await db.execute(
+        select(CanvasShot)
+        .where(CanvasShot.canvas_id == canvas.id)
+        .options(selectinload(CanvasShot.media))
+        .order_by(CanvasShot.sort_order, CanvasShot.id)
+    )
+    shots = shots_result.scalars().all()
+    video_paths = [
+        s.media.file_url
+        for s in shots
+        if s.status == "done" and s.media and s.media.file_url
+    ]
+
+    if not video_paths:
+        raise HTTPException(status_code=400, detail="No generated shot videos available for compose")
+
+    music_task_result = await db.execute(
+        select(Task)
+        .where(
+            Task.project_id == project_id,
+            Task.type == "music",
+            Task.status == "completed",
+        )
+        .order_by(Task.id.desc())
+        .limit(1)
+    )
+    music_task = music_task_result.scalar_one_or_none()
+    audio_url = ""
+    if music_task:
+        media_result = await db.execute(
+            select(Media)
+            .where(Media.task_id == music_task.id, Media.type == "music")
+            .limit(1)
+        )
+        audio_media = media_result.scalar_one_or_none()
+        if audio_media and audio_media.file_url:
+            audio_url = audio_media.file_url
+
+    compose_task = Task(
+        project_id=project_id,
+        type="compose",
+        model_name="ffmpeg",
+        status="pending",
+        params={
+            "source": "canvas",
+            "video_paths": video_paths,
+            "audio_path": audio_url,
+        },
+    )
+    db.add(compose_task)
+    await db.flush()
+    task_id = compose_task.id
+    await db.commit()
+
+    run_generation_task.delay(task_id)
+    return CanvasComposeResponse(
+        task_id=task_id,
+        status="pending",
+        clips=len(video_paths),
+        has_audio=bool(audio_url),
+    )
+
+
 @router.get("/shots/{node_id}", response_model=CanvasShotResponse)
 async def get_shot_status(
     project_id: int,
@@ -343,6 +429,7 @@ async def get_shot_status(
         raise HTTPException(status_code=404, detail="Shot not found")
 
     # Sync status from the linked Task so the frontend poll gets live state
+    error_message: str | None = None
     if shot.task_id and shot.status == "generating":
         task_result = await db.execute(select(Task).where(Task.id == shot.task_id))
         task = task_result.scalar_one_or_none()
@@ -367,9 +454,15 @@ async def get_shot_status(
                 shot = refreshed.scalar_one()
             elif task.status == "failed":
                 shot.status = "failed"
+                error_message = task.error_message
                 await db.commit()
+    elif shot.task_id and shot.status == "failed":
+        task_result = await db.execute(select(Task).where(Task.id == shot.task_id))
+        task = task_result.scalar_one_or_none()
+        if task:
+            error_message = task.error_message
 
-    return CanvasShotResponse.from_orm_with_media(shot)
+    return CanvasShotResponse.from_orm_with_media(shot, error_message=error_message)
 
 
 class MusicGenerateRequest(BaseModel):
@@ -380,6 +473,7 @@ class MusicGenerateRequest(BaseModel):
     duration: float = -1
     vocal_language: str = "unknown"
     instrumental: bool = False
+    model_name: str = "acestep"
 
 
 @router.post("/music/generate")
@@ -389,13 +483,13 @@ async def generate_music_node(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dispatch ACE-Step V1.5 music generation for a Song node on the canvas."""
+    """Dispatch music generation for a Song node on the canvas."""
     await get_owned_project(project_id, user, db)
 
     task = Task(
         project_id=project_id,
         type="music",
-        model_name="acestep",
+        model_name=req.model_name or "acestep",
         status="pending",
         params={
             "node_id": req.node_id,
@@ -514,8 +608,12 @@ async def suggest_prompt(
             system=system_msg,
         )
         return {"prompt": result.strip()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
+    except Exception:
+        return {
+            "prompt": _fallback_suggest_prompt(req),
+            "fallback": True,
+            "reason": "llm_unavailable",
+        }
 
 
 _OPTIMIZE_PROMPTS: dict[str, tuple[str, str]] = {
@@ -566,8 +664,12 @@ async def optimize_prompt(
             system=system_msg,
         )
         return {"prompt": result.strip()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
+    except Exception:
+        return {
+            "prompt": _fallback_optimize_prompt(req.prompt, req.type),
+            "fallback": True,
+            "reason": "llm_unavailable",
+        }
 
 
 # ─── internal helpers ──────────────────────────────────────────────────────────
@@ -585,3 +687,63 @@ def _build_context_suffix(ctx: dict) -> str:
         for m in ctx["music"]:
             parts.append(f"Mood: {m.get('mood', '')} at {m.get('bpm', '')} BPM")
     return ". " + ". ".join(parts) if parts else ""
+
+
+def _fallback_suggest_prompt(req: PromptSuggestRequest) -> str:
+    """Best-effort prompt suggestion when remote LLM is unavailable."""
+    ctx = req.canvas_context or {}
+
+    subject = "a singer"
+    if ctx.get("characters"):
+        first = ctx["characters"][0]
+        subject = first.get("name") or first.get("description") or subject
+
+    scene = "on a cinematic stage"
+    if ctx.get("scene"):
+        s0 = ctx["scene"][0]
+        scene_name = s0.get("name", "").strip()
+        style = s0.get("style", "").strip()
+        lighting = s0.get("lighting", "").strip()
+        scene_parts = [p for p in [scene_name, style, lighting] if p]
+        if scene_parts:
+            scene = ", ".join(scene_parts)
+
+    mood = "emotional"
+    bpm = ""
+    if ctx.get("music"):
+        m0 = ctx["music"][0]
+        mood = m0.get("mood", "") or mood
+        bpm_val = m0.get("bpm", "")
+        bpm = f", {bpm_val} BPM" if bpm_val else ""
+
+    base = req.existing_prompt.strip() if req.existing_prompt else ""
+    if base:
+        return (
+            f"{base}, cinematic framing, subtle camera movement, "
+            f"{mood} atmosphere{bpm}, cohesive color grading"
+        )
+
+    return (
+        f"{subject} performing in {scene}, medium shot to close-up, "
+        f"cinematic camera movement, {mood} atmosphere{bpm}, dramatic lighting, high detail"
+    )
+
+
+def _fallback_optimize_prompt(prompt: str, prompt_type: str) -> str:
+    """Best-effort prompt optimization when remote LLM is unavailable."""
+    cleaned = " ".join((prompt or "").strip().split())
+    if not cleaned:
+        return ""
+
+    if prompt_type == "video":
+        return (
+            f"{cleaned}, cinematic composition, dynamic camera movement, "
+            "dramatic lighting, filmic color grading, high detail"
+        )
+    if prompt_type == "music_desc":
+        return f"{cleaned}; clear genre, instrumentation, mood, rhythm, and arrangement cues"
+    if prompt_type == "music_lyrics":
+        return cleaned
+    if prompt_type in {"character", "scene"}:
+        return f"{cleaned}, vivid visual details, consistent style"
+    return cleaned
