@@ -76,7 +76,8 @@ def upload_file(local_path: str, content_type: str = "application/octet-stream")
         _LOCAL_DIR.mkdir(parents=True, exist_ok=True)
         target = _LOCAL_DIR / object_name
         shutil.copy2(local_path, target)
-        return f"http://127.0.0.1:8000/storage/{object_name}"
+        public_base = settings.app_public_base_url.rstrip("/")
+        return f"{public_base}/storage/{object_name}"
 
 
 def delete_objects(urls: list[str]) -> None:

@@ -105,6 +105,96 @@ class ChatResponse(BaseModel):
     intent_extracted: dict | None = None
 
 
+# ─── Mock helpers (activated by AIMV_MOCK_CHAT=1) ────────────────────────────
+
+_MOCK_CHAT_REPLIES = [
+    (
+        "收到！这是一个非常强的反乌托邦主题 🎬\n\n"
+        "我帮你梳理了方向：**觉醒 × 同化**——"
+        "短发少女 EIKO 在一个所有人都被扑克牌花色抱枕取代头部的世界里觉醒，"
+        "最终选择反抗体制、逃离流水线。\n\n"
+        "整体风格偏**赛博电影**，配乐用暗调 Synth-Cinematic，92 BPM，带人声。\n\n"
+        "准备好了可以直接点击「生成 MV」，我来帮你编排完整分镜！"
+    ),
+    (
+        "配乐方向确认 🎵\n\n"
+        "我会为这个 MV 生成以下音轨：\n"
+        "- **风格**：Synth-Cinematic × 工业电子\n"
+        "- **BPM**：92，低频 Bass 驱动，电子鼓强拍\n"
+        "- **人声**：带失真处理的女声吟唱，呼应 EIKO 觉醒意象\n"
+        "- **时长**：258s，与视频精确对齐\n\n"
+        "音乐将使用 **Suno v4** 模型生成，质量更高、节奏更准确。\n\n"
+        "如果对视觉风格还有要求，也可以继续告诉我！"
+    ),
+    (
+        "镜头语言规划完毕 🎥\n\n"
+        "7 个分镜将使用以下摄像机方案：\n"
+        "- **凝视**：超近景静态 + 极浅景深（Veo 3.1）\n"
+        "- **流水线**：顶视跟踪俯拍（Veo 3.1）\n"
+        "- **炸弹**：鱼眼监控广角（Grok Video 1）\n"
+        "- **崩塌**：手持快切 + 慢动作碎片（Seedance 2.0）\n"
+        "- **逃离**：侧跟移动 + 粒子拖尾（Veo 3.1）\n"
+        "- **虚空**：360° 环绕缓转（Veo 3.1）\n"
+        "- **标志**：极简定格片尾（Veo 3.1）\n\n"
+        "色调将以**冷蓝 × 暗金**为主基调，高对比度电影 LUT。\n\n"
+        "一切就绪，点击「生成 MV」开始吧！"
+    ),
+    (
+        "好的，风格和情感方向已锁定 ✅\n\n"
+        "我会把 7 个镜头分成三幕：\n"
+        "- **第一幕（0-130s）**：压迫与同化，扑克人群像，EIKO 初次觉醒\n"
+        "- **第二幕（130-210s）**：引爆点，CCTV 炸弹，办公室崩塌\n"
+        "- **第三幕（210-258s）**：逃离与自由，红色虚空，EIKO LOGO\n\n"
+        "人物、场景细节都已准备好，点「生成 MV」开始！"
+    ),
+]
+_mock_reply_idx = 0
+
+
+async def _mock_chat_response(project, history: list, db, message: str) -> "ChatResponse":
+    global _mock_reply_idx
+    reply = _MOCK_CHAT_REPLIES[_mock_reply_idx % len(_MOCK_CHAT_REPLIES)]
+    _mock_reply_idx += 1
+    history.append({"role": "assistant", "content": reply})
+    project.chat_history = history
+    await db.commit()
+    return ChatResponse(role="assistant", content=reply)
+
+
+async def _mock_plan_response(project, history: list, db) -> "ChatResponse":
+    """Return the project's existing storyboard as a ready-made plan — no LLM call."""
+    from app.services.mock_pipeline import _MOCK_STORYBOARD, _MOCK_CHARACTER_BANK, _MOCK_MUSIC_PLAN
+
+    storyboard = project.storyboard or _MOCK_STORYBOARD
+    character_bank = project.character_bank or _MOCK_CHARACTER_BANK
+    music_plan = (project.style_config or {}).get("music_plan") or _MOCK_MUSIC_PLAN
+
+    plan = {
+        "storyboard": storyboard,
+        "character_bank": character_bank,
+        "music_plan": music_plan,
+    }
+    project.storyboard = storyboard
+    project.character_bank = character_bank
+    project.status = "planning"
+    style_config = dict(project.style_config or {})
+    style_config["music_plan"] = music_plan
+    project.style_config = style_config
+
+    n = len(storyboard)
+    chars = len(character_bank)
+    summary = (
+        f"创作方案已生成！\n\n"
+        f"**角色**：已定义 {chars} 个（EIKO · 扑克人群像）\n"
+        f"**分镜**：共 {n} 个片段\n"
+        f"**音乐**：暗调 Synth-Cinematic · 92 BPM · 带人声\n\n"
+        f"查看下方分镜方案，准备好后点击「开始生成」！"
+    )
+    history.append({"role": "assistant", "content": summary})
+    project.chat_history = history
+    await db.commit()
+    return ChatResponse(role="assistant", content=summary, plan=plan)
+
 
 @router.post("/chat/guest")
 async def chat_guest(req: ChatMessage, request: Request):
@@ -136,6 +226,9 @@ async def chat(
 
     # --- Plan generation mode ---
     if req.generate_plan:
+        from app.config import get_settings as _gs
+        if _gs().aimv_mock_chat:
+            return await _mock_plan_response(project, history, db)
         from app.services.planning_service import PlanningService
         # Use cached analysis from upload (avoids re-downloading from MinIO)
         cached_analysis = (project.style_config or {}).get("music_analysis")
@@ -179,6 +272,11 @@ async def chat(
         project.chat_history = history
         await db.commit()
         return ChatResponse(role="assistant", content=assistant_msg, plan=plan)
+
+    # --- Mock regular chat ---
+    from app.config import get_settings as _gs
+    if _gs().aimv_mock_chat:
+        return await _mock_chat_response(project, history, db, req.message)
 
     # --- SSE streaming mode ---
     if req.stream:

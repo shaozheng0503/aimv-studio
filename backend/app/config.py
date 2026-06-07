@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     app_name: str = "AIMV"
     debug: bool = False
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    app_public_base_url: str = "http://127.0.0.1:8000"
 
     # Database
     database_url: str = "postgresql+asyncpg://aimv:aimv@localhost:5432/aimv"
@@ -60,6 +61,11 @@ class Settings(BaseSettings):
     # Local model paths
     acestep_model_path: str = ""
     wan_model_path: str = ""
+
+    # Demo/testing mock flags (set in .env to bypass real AI calls)
+    aimv_mock_pipeline: str = ""   # set to "1" to use fake pipeline runner
+    aimv_mock_chat: str = ""       # set to "1" to return canned chat responses
+    aimv_mock_source_project: str = "20"  # project id to copy media from
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

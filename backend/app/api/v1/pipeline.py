@@ -32,11 +32,17 @@ async def start_pipeline(
     if project.status in ("generating", "composing"):
         raise HTTPException(status_code=409, detail="Pipeline already running for this project.")
 
-    from app.workers.generation_tasks import run_full_pipeline
+    import asyncio
+    from app.config import get_settings as _gs
 
     project.status = "generating"
     await db.commit()
 
-    run_full_pipeline.delay(project.id)
+    if _gs().aimv_mock_pipeline:
+        from app.services.mock_pipeline import run_mock_pipeline
+        asyncio.create_task(run_mock_pipeline(project.id))
+    else:
+        from app.workers.generation_tasks import run_full_pipeline
+        run_full_pipeline.delay(project.id)
 
     return {"status": "started", "project_id": project.id}

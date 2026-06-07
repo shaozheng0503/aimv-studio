@@ -108,12 +108,11 @@ import json
 
 
 @app.websocket("/ws/projects/{project_id}/progress")
-async def ws_progress(websocket: WebSocket, project_id: int):
+async def ws_progress(websocket: WebSocket, project_id: int, token: str = ""):
     """WebSocket endpoint for real-time generation progress.
 
-    Auth flow: accept the connection first, then expect the client to send
-    {"type": "auth", "token": "<jwt>"} as the first message.  This keeps
-    tokens out of URLs (access logs, browser history).
+    Auth: accepts token either as ?token= query param (frontend default)
+    or as first JSON message {"type":"auth","token":"<jwt>"}.
     Closes with 4001 on invalid token, 4003 if project not owned by user.
     """
     from app.core.security import decode_access_token
@@ -122,13 +121,13 @@ async def ws_progress(websocket: WebSocket, project_id: int):
     from sqlalchemy import select
 
     await websocket.accept()
-    try:
-        # Wait up to 10 s for auth message
-        auth_msg = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
-        token = auth_msg.get("token", "") if isinstance(auth_msg, dict) else ""
-    except Exception:
-        await websocket.close(code=4001)
-        return
+    if not token:
+        try:
+            auth_msg = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+            token = auth_msg.get("token", "") if isinstance(auth_msg, dict) else ""
+        except Exception:
+            await websocket.close(code=4001)
+            return
 
     user_id = decode_access_token(token)
     if user_id is None:

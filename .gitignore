@@ -60,3 +60,26 @@ backend/alembic/versions/*.pyc
 
 # Docs build
 docs/_build/
+
+# Server env secrets — keep ONLY the .env.server.example template
+.env.server
+*.env.server
+
+# Audio (m4a not covered above)
+*.m4a
+
+# Personal thesis & its AIGC-rewrite backups — never publish
+毕业论文*
+
+# Confidential / employer & binary design docs
+ShopLive_*.docx
+AIMV_*.docx
+
+# Generated demo data & scratch files
+backend/local_storage/
+backend/app/local_storage/
+local_storage/
+项目/
+创意/
+xiaoyunque/
+styles.css

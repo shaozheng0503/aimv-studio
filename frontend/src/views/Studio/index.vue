@@ -74,7 +74,10 @@ onMounted(async () => {
         phase.value = 'done'
         // try to fetch final video from media
         const { data: media } = await api.get(`/projects/${projectId.value}/media`).catch(() => ({ data: [] }))
-        const composed = (media as any[]).find((m: any) => m.type === 'composed_video' || m.type === 'video')
+        const list = media as any[]
+        const composed = list.find((m: any) => m.type === 'final_video')
+                      ?? list.find((m: any) => m.type === 'composed_video')
+                      ?? list.find((m: any) => m.type === 'video' && m?.metadata_json?.is_final)
         if (composed) finalVideoUrl.value = composed.file_url
       }
     } catch {
@@ -318,8 +321,16 @@ function buildShotStatusesFromStoryboard() {
 function connectWebSocket() {
   if (!projectId.value) return
   const token = localStorage.getItem('token') || ''
-  const wsUrl = `ws://localhost:8000/ws/projects/${projectId.value}/progress?token=${token}`
+  const apiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/\/$/, '')
+  const wsBase = apiBase.replace(/^http/, 'ws')
+  const wsUrl = `${wsBase}/ws/projects/${projectId.value}/progress`
   ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => {
+    try {
+      ws?.send(JSON.stringify({ type: 'auth', token }))
+    } catch { /* ignore */ }
+  }
 
   ws.onmessage = (event) => {
     try {
