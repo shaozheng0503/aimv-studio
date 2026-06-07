@@ -8,6 +8,7 @@ Components:
 5. Mood/energy curve extraction
 """
 
+import os
 import subprocess
 import tempfile
 import json
@@ -108,6 +109,37 @@ class MusicAnalyzer:
         except Exception:
             pass
         return self._analysis
+
+    @classmethod
+    def analyze_url(cls, audio_url: str) -> "MusicAnalysis":
+        """Download (if an HTTP URL) and fully analyse a track, returning the analysis.
+
+        Centralises the download → analyse → cleanup dance shared by the compose
+        step (beat alignment) and the music verifier, so neither has to reimplement
+        temp-file handling.
+        """
+        import tempfile
+        local, tmp = audio_url, None
+        if audio_url.startswith("http://") or audio_url.startswith("https://"):
+            import httpx
+            fd, tmp = tempfile.mkstemp(suffix=".audio")
+            os.close(fd)
+            with httpx.stream("GET", audio_url, timeout=120, follow_redirects=True) as r:
+                r.raise_for_status()
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_bytes(chunk_size=1 << 20):
+                        f.write(chunk)
+            local = tmp
+        analyzer = cls(local)
+        try:
+            return analyzer.analyze()
+        finally:
+            analyzer.cleanup()
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
     def cleanup(self) -> None:
         """Remove any temp directory created internally by separate_vocals."""
@@ -230,6 +262,23 @@ class MusicAnalyzer:
             n_uniform = max(2, int(round(duration / 8.0)))
             bound_times = np.linspace(0.0, duration, n_uniform + 1)
 
+        # Subdivide over-long segments: agglomerative can lump a repetitive body
+        # (e.g. a long chorus) into a single 100 s+ block, which is useless as a
+        # shot-timing reference. Split anything over ~30 s into even pieces so no
+        # one section dominates the timeline. Pieces keep their own energy label,
+        # so a long chorus simply becomes several adjacent chorus segments.
+        max_len = 30.0
+        refined = [round(float(bound_times[0]), 2)]
+        for a, b in zip(bound_times[:-1], bound_times[1:]):
+            a, b = float(a), float(b)
+            seg = b - a
+            if seg > max_len:
+                n_sub = int(np.ceil(seg / max_len))
+                for j in range(1, n_sub):
+                    refined.append(round(a + seg * j / n_sub, 2))
+            refined.append(round(b, 2))
+        bound_times = np.array(sorted(set(refined)))
+
         # --- Per-segment RMS energy for label assignment ---
         rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
         n_frames = len(rms)
@@ -244,19 +293,24 @@ class MusicAnalyzer:
         if not energies:
             return
 
-        energy_high = float(np.percentile(energies, 65))
+        # Label by energy RELATIVE TO THE TRACK MEAN (per thesis §3.3): a segment
+        # above 1.2× mean is a chorus candidate, an interior segment below 0.7×
+        # mean is a low-energy bridge, the rest are verses; first/last are
+        # intro/outro. This avoids the percentile method's failure mode where a
+        # chorus-heavy song labels almost everything "chorus".
+        mean_energy = float(np.mean(energies)) or 1.0
         n = len(energies)
-        mid = n // 2
 
         sections: list[Section] = []
         for i, energy in enumerate(energies):
+            ratio = energy / mean_energy
             if i == 0:
                 label = "intro"
             elif i == n - 1:
                 label = "outro"
-            elif energy >= energy_high:
+            elif ratio >= 1.2:
                 label = "chorus"
-            elif i == mid and n > 5:
+            elif ratio < 0.7:
                 label = "bridge"
             else:
                 label = "verse"

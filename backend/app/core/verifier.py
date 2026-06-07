@@ -4,6 +4,7 @@ Scores generated images/videos/audio on multiple dimensions using LLM evaluation
 Triggers automatic retry if quality falls below threshold.
 """
 
+import asyncio
 import httpx
 from dataclasses import dataclass
 from app.config import get_settings
@@ -55,14 +56,47 @@ class VerifierAgent:
         system_prompt = VERIFY_PROMPT_IMAGE.format(prompt=prompt, character_desc=character_desc)
         return await self._call_llm_judge(system_prompt, image_url=image_url)
 
-    async def verify_music(self, audio_url: str, prompt: str) -> VerifyResult:
-        """Music cannot be verified via LLM vision — always passes with neutral score."""
-        return VerifyResult(
-            passed=True,
-            score=3.0,
-            explanation="Audio verification skipped (no audio LLM configured)",
-            dimensions={},
-        )
+    async def verify_music(
+        self, audio_url: str, prompt: str,
+        target_bpm: float = 0.0, target_duration: float = 0.0,
+    ) -> VerifyResult:
+        """Verify generated music by signal analysis (no audio LLM required).
+
+        Scores three dimensions: the track has real content (detectable beats),
+        its tempo matches the requested BPM (±8% to pass), and its length matches
+        the requested duration (±15% to pass). Falls back to a neutral pass if
+        analysis can't run, so a tooling gap never blocks the pipeline.
+        """
+        try:
+            from app.core.music_analyzer import MusicAnalyzer
+            analysis = await asyncio.to_thread(MusicAnalyzer.analyze_url, audio_url)
+        except Exception as e:
+            return VerifyResult(True, 3.0, f"Audio verification skipped: {e}", {})
+
+        beats, bpm, dur = analysis.to_beat_map(), analysis.bpm, analysis.duration
+        dims: dict = {}
+
+        has_content = len(beats) >= 4 and dur > 1.0
+        dims["has_content"] = 5.0 if has_content else 0.0
+        score = 5.0 if has_content else 1.0
+
+        if target_bpm and bpm:
+            err = abs(bpm - target_bpm) / target_bpm
+            dims["tempo_match"] = round(max(0.0, 5.0 * (1.0 - err / 0.20)), 2)
+            if err > 0.08:
+                score -= 1.0
+
+        if target_duration and dur:
+            derr = abs(dur - target_duration) / target_duration
+            dims["duration_match"] = round(max(0.0, 5.0 * (1.0 - derr / 0.30)), 2)
+            if derr > 0.15:
+                score -= 1.0
+
+        score = max(1.0, min(5.0, score))
+        passed = has_content and score >= THRESHOLD
+        expl = (f"bpm={bpm:.0f}/{target_bpm or '—'}, "
+                f"dur={dur:.1f}s/{target_duration or '—'}, beats={len(beats)}")
+        return VerifyResult(passed=passed, score=score, explanation=expl, dimensions=dims)
 
     async def verify_video(self, video_url: str, prompt: str, character_desc: str = "") -> VerifyResult:
         """Score a generated video clip using LLM vision."""

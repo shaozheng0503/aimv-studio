@@ -137,7 +137,10 @@ def run_generation_task(self, task_id: int):
 
             with tempfile.TemporaryDirectory(prefix=f"compose_{project.id}_") as tmp_dir:
                 concat_path = os.path.join(tmp_dir, "concat.mp4")
-                compose.concat_videos(video_paths, concat_path)
+                compose.concat_videos(
+                    video_paths, concat_path,
+                    beat_times=params.get("beat_times") or None,
+                )
 
                 if audio_path:
                     final_path = os.path.join(tmp_dir, "final.mp4")
@@ -438,6 +441,15 @@ def run_video_phase(_phase1_results, project_id: int):
         db.close()
 
 
+def _extract_beat_times(audio_url: str) -> list[float]:
+    """Analyse an audio track (downloading first if it's a URL) → beat timestamps.
+
+    Used at compose time so clip cut points can be snapped to real beats.
+    """
+    from app.core.music_analyzer import MusicAnalyzer
+    return MusicAnalyzer.analyze_url(audio_url).to_beat_map()
+
+
 @celery_app.task
 def run_compose_phase(project_id: int, video_paths: list):
     """Phase 3 — Compose final MV: concat video clips + merge audio track.
@@ -475,6 +487,18 @@ def run_compose_phase(project_id: int, video_paths: list):
             db.commit()
             return
 
+        # Analyse the (generated) music to get a beat grid so the compose step can
+        # snap clip cut points to beats — making audio-visual alignment a real
+        # property of the output, not just an offline metric. Best-effort.
+        beat_times: list[float] = []
+        if audio_media and audio_media.file_url:
+            try:
+                beat_times = _extract_beat_times(audio_media.file_url)
+            except Exception:
+                beat_times = []
+        if beat_times:
+            notify_progress(project_id, 0, "pipeline", "beats_detected", {"beats": len(beat_times)})
+
         compose_task = Task(
             project_id=project.id,
             type="compose",
@@ -482,6 +506,7 @@ def run_compose_phase(project_id: int, video_paths: list):
             params={
                 "video_paths": video_paths,
                 "audio_path": audio_media.file_url if audio_media else "",
+                "beat_times": beat_times,
             },
         )
         db.add(compose_task)

@@ -48,12 +48,56 @@ class ComposeService:
             return 1080, 1080   # square
         return 1920, 1080       # landscape
 
+    @staticmethod
+    def _clip_duration(path: str) -> float:
+        """Return a clip's duration in seconds (0.0 on failure)."""
+        try:
+            out = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", path],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            return float(out)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _snap_durations(clip_durations: list[float], beats: list[float]) -> list[float]:
+        """Trim each clip so its end cut lands on the nearest music beat.
+
+        Walks the timeline cut-by-cut: clip i is trimmed back to the last beat at
+        or before its natural end (t + clip_length). Trimming only ever SHORTENS
+        — by less than one beat interval — and lands every cut exactly on a beat.
+        If no beat sits at least 0.5 s into the clip, it plays whole and the next
+        clip re-syncs from its natural end. This is what makes the concatenated
+        cut points land on beats — the basis of the Beat-F1 metric.
+        """
+        if not beats:
+            return list(clip_durations)
+        import bisect
+        grid = sorted(float(b) for b in beats)
+        out: list[float] = []
+        t = 0.0
+        for length in clip_durations:
+            natural_end = t + length
+            idx = bisect.bisect_right(grid, natural_end) - 1   # last beat ≤ natural_end
+            if idx >= 0 and (grid[idx] - t) >= 0.5:
+                dur = grid[idx] - t
+                t = grid[idx]
+            else:
+                # no usable beat in range → play the clip whole, resync next clip
+                dur = length
+                t = natural_end
+            out.append(round(dur, 3))
+        return out
+
     def concat_videos(
         self,
         video_paths: list[str],
         output_path: str,
         target_width: int | None = None,
         target_height: int | None = None,
+        beat_times: list[float] | None = None,
     ) -> str:
         """Concatenate video clips into a single video.
 
@@ -61,6 +105,10 @@ class ComposeService:
         Normalises all clips to H264/AAC at target_width×target_height before
         concat — this prevents codec/resolution mismatch failures when clips
         come from different model providers (Veo, Grok, Seedance, Wan2.2).
+
+        When ``beat_times`` is supplied, each clip is trimmed so the concat cut
+        points snap to the nearest music beat (see ``_snap_durations``); omit it
+        to keep clips at full length.
         """
         import shutil
         import httpx
@@ -86,6 +134,13 @@ class ComposeService:
             if target_width is None or target_height is None:
                 target_width, target_height = self._auto_target(resolved[0] if resolved else "")
 
+            # Optional beat alignment: trim each clip so concat cut points land on
+            # music beats. Only shortens clips; a no-op when no beats are supplied.
+            trims: list[float] | None = None
+            if beat_times:
+                clip_durs = [self._clip_duration(p) for p in resolved]
+                trims = self._snap_durations(clip_durs, beat_times)
+
             # Step 2: Normalise each clip to target resolution + H264.
             # Video clips from cloud APIs (Veo, Grok, Seedance) may differ in
             # resolution, codec, or pixel format.  We re-encode to H264 with
@@ -100,14 +155,16 @@ class ComposeService:
             )
             for i, src in enumerate(resolved):
                 norm_path = str(tmp_dir / f"norm_{i:04d}.mp4")
-                _run_ffmpeg([
-                    "ffmpeg", "-y",
-                    "-i", src,
+                cmd = ["ffmpeg", "-y", "-i", src]
+                if trims and i < len(trims) and trims[i] > 0:
+                    cmd += ["-t", f"{trims[i]:.3f}"]   # beat-aligned trim
+                cmd += [
                     "-vf", scale_filter,
                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                     "-an",          # strip audio — music is added in compose step
                     norm_path,
-                ])
+                ]
+                _run_ffmpeg(cmd)
                 normalised.append(norm_path)
 
             # Step 3: Concat normalised clips (same codec/resolution → copy is safe)

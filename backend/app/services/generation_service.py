@@ -191,9 +191,15 @@ class GenerationService:
         params: dict | None = None,
     ) -> GenerateResult:
         """Generate music with verify-retry loop (consistent with image/video)."""
+        p = params or {}
         adapter = self.get_adapter(model_name)
-        request = GenerateRequest(prompt=prompt, params=params or {})
+        request = GenerateRequest(prompt=prompt, params=p)
         return await self._generate_with_retry(
-            adapter, request, lambda url: self.verifier.verify_music(url, prompt)
+            adapter, request,
+            lambda url: self.verifier.verify_music(
+                url, prompt,
+                target_bpm=float(p.get("bpm") or 0),
+                target_duration=float(p.get("duration") or 0),
+            ),
         )
 
