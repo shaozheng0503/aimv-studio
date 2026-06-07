@@ -24,12 +24,36 @@ def _run_ffmpeg(cmd: list[str]) -> None:
 
 class ComposeService:
 
+    @staticmethod
+    def _auto_target(sample_path: str) -> tuple[int, int]:
+        """Pick a canonical target resolution matching the sample clip's orientation.
+
+        Avoids letterboxing vertical (9:16) MVs into a landscape frame (which then
+        gets padded a second time on platform export). Falls back to 1080p landscape.
+        """
+        if not sample_path:
+            return 1920, 1080
+        try:
+            out = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", sample_path],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            w, h = (int(x) for x in out.split("x")[:2])
+        except Exception:
+            return 1920, 1080
+        if h > w:
+            return 1080, 1920   # portrait
+        if w == h:
+            return 1080, 1080   # square
+        return 1920, 1080       # landscape
+
     def concat_videos(
         self,
         video_paths: list[str],
         output_path: str,
-        target_width: int = 1920,
-        target_height: int = 1080,
+        target_width: int | None = None,
+        target_height: int | None = None,
     ) -> str:
         """Concatenate video clips into a single video.
 
@@ -56,6 +80,11 @@ class ComposeService:
                     resolved.append(dest)
                 else:
                     resolved.append(p)
+
+            # Choose the target canvas. When not explicitly set, match the source
+            # clips' orientation so vertical MVs aren't double-letterboxed.
+            if target_width is None or target_height is None:
+                target_width, target_height = self._auto_target(resolved[0] if resolved else "")
 
             # Step 2: Normalise each clip to target resolution + H264.
             # Video clips from cloud APIs (Veo, Grok, Seedance) may differ in
@@ -111,6 +140,9 @@ class ComposeService:
             "ffmpeg", "-y",
             "-i", video_path,
             "-i", audio_path,
+            # Explicit mapping: video from input 0, music from input 1. Don't rely
+            # on ffmpeg's default stream selection.
+            "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "copy",
             "-af", audio_filter, "-c:a", "aac", "-b:a", "192k",
             "-shortest",

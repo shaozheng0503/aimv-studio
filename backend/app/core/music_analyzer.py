@@ -87,11 +87,26 @@ class MusicAnalyzer:
         self._analysis.duration = float(librosa.get_duration(y=self._y, sr=self._sr))
 
     def analyze(self) -> MusicAnalysis:
-        """Run full analysis pipeline. Audio is loaded only once."""
+        """Run full analysis pipeline. Audio is loaded only once.
+
+        Each stage degrades gracefully: a failure (e.g. audio too short for the
+        recurrence window, or silent audio) leaves that field empty instead of
+        crashing the caller's planning pipeline.
+        """
         self._load()
-        self._detect_bpm_and_beats()
-        self._segment_structure()
-        self._extract_energy_curve()
+        try:
+            self._detect_bpm_and_beats()
+        except Exception:
+            self._analysis.bpm = 0.0
+            self._analysis.beats = []
+        try:
+            self._segment_structure()
+        except Exception:
+            self._analysis.sections = []
+        try:
+            self._extract_energy_curve()
+        except Exception:
+            pass
         return self._analysis
 
     def cleanup(self) -> None:
@@ -147,8 +162,10 @@ class MusicAnalyzer:
         self._analysis.bpm = float(tempo[0]) if hasattr(tempo, '__len__') else float(tempo)
         beat_times = librosa.frames_to_time(beat_frames, sr=sr)
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        # Guard against silent audio where onset_env.max() == 0 → division by zero.
+        onset_peak = float(onset_env.max()) or 1.0
         self._analysis.beats = [
-            Beat(time=float(t), strength=min(1.0, float(onset_env[f]) / onset_env.max()))
+            Beat(time=float(t), strength=min(1.0, float(onset_env[f]) / onset_peak))
             for t, f in zip(beat_times, beat_frames)
             if f < len(onset_env)
         ]
@@ -168,22 +185,50 @@ class MusicAnalyzer:
         duration = self._analysis.duration
         hop_length = 512
 
+        # Too-short audio can't be segmented reliably — leave sections empty so
+        # the planner falls back to uniform shot timing rather than crashing.
+        if duration < 10.0:
+            return
+
         # --- Feature extraction ---
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=12, hop_length=hop_length)
         chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length)
         features = librosa.util.normalize(
             np.vstack([mfcc, chroma]), norm=2, axis=0
         )
+        n_frames = features.shape[1]
+        if n_frames < 8:
+            return
 
         # --- Recurrence matrix + agglomerative boundary detection ---
+        # width must stay below the frame count or librosa raises.
+        width = min(43, max(3, n_frames // 4))
         R = librosa.segment.recurrence_matrix(
-            features, width=43, mode="affinity", sym=True
+            features, width=width, mode="affinity", sym=True
         )
-        # Number of segments: ~1 per 20 s, clamped to [4, 10]
+        # Number of segments: ~1 per 20 s, clamped to [4, 10] and never more than
+        # the available frames allow.
         k = max(4, min(10, int(duration / 20)))
+        k = min(k, n_frames - 1)
         bounds = librosa.segment.agglomerative(R, k)
         bound_times = librosa.frames_to_time(bounds, sr=sr, hop_length=hop_length)
+        # agglomerative already emits frame 0 as its first boundary, so the explicit
+        # 0.0 prepended below would duplicate it. Dedupe and drop sub-0.5 s slivers
+        # so we never emit a zero-length intro that shifts every later label.
         bound_times = np.concatenate([[0.0], bound_times, [duration]])
+        bound_times = np.unique(np.round(bound_times, 2))
+        merged = [float(bound_times[0])]
+        for t in bound_times[1:]:
+            if float(t) - merged[-1] >= 0.5:
+                merged.append(float(t))
+        if merged[-1] < duration:
+            merged.append(duration)
+        bound_times = np.array(merged)
+        # Degenerate result (collapsed to <2 segments) → fall back to ~8 s uniform
+        # slices, matching the documented degradation path.
+        if len(bound_times) - 1 < 2:
+            n_uniform = max(2, int(round(duration / 8.0)))
+            bound_times = np.linspace(0.0, duration, n_uniform + 1)
 
         # --- Per-segment RMS energy for label assignment ---
         rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]

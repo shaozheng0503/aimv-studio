@@ -164,6 +164,10 @@ def run_generation_task(self, task_id: int):
             file_url=result.file_url,
             duration=result.duration,
             metadata_json=result.metadata,
+            # Preserve storyboard position (set for image tasks) so downstream
+            # phases can match media to the correct shot regardless of the order
+            # in which parallel tasks finish.
+            sort_order=(task.params or {}).get("segment_index"),
         )
         db.add(media)
         db.commit()
@@ -221,7 +225,7 @@ def run_full_pipeline(project_id: int):
         image_model = model_prefs.get("image", "gemini-image")
 
         image_tasks = []
-        for segment in storyboard:
+        for idx, segment in enumerate(storyboard):
             task = Task(
                 project_id=project.id,
                 type="image",
@@ -230,6 +234,10 @@ def run_full_pipeline(project_id: int):
                     "prompt": segment.get("image_prompt", segment.get("description", "")),
                     "negative_prompt": segment.get("negative_prompt", ""),
                     "character_name": (segment.get("characters") or [""])[0],
+                    # Tag with storyboard position so the keyframe can be matched
+                    # back to its shot even though images generate in parallel
+                    # and complete out of order.
+                    "segment_index": idx,
                 },
             )
             db.add(task)
@@ -330,16 +338,30 @@ def run_video_phase(_phase1_results, project_id: int):
             Media.type == "image",
         ).order_by(Media.id).all()
 
+        # Map each keyframe to its storyboard segment by sort_order (stamped at
+        # creation). Images generate in a parallel chord and finish out of order,
+        # so positional indexing by Media.id picks the wrong shot's frame.
+        # Fall back to positional order only for media that predates sort_order.
+        image_by_seg: dict[int, str] = {}
+        for pos, m in enumerate(image_media):
+            key = m.sort_order if m.sort_order is not None else pos
+            image_by_seg.setdefault(key, m.file_url)
+
+        # Honour an explicit per-shot model preference globally only when the user
+        # actually forced one; otherwise let ShotRouter's sing/story routing decide
+        # per shot (UI leaves this blank / "auto" to enable routing).
+        pref_video = (model_prefs.get("video") or "").strip()
+
         video_paths = []
         prev_last_frame = ""
         frame_temp_files: list[str] = []
 
         for i, plan in enumerate(shot_plans):
             first_frame = prev_last_frame
-            if not first_frame and i < len(image_media):
-                first_frame = image_media[i].file_url
+            if not first_frame:
+                first_frame = image_by_seg.get(i, "")
 
-            video_model = model_prefs.get("video") or plan.video_model
+            video_model = pref_video if pref_video and pref_video.lower() != "auto" else plan.video_model
 
             video_task = Task(
                 project_id=project.id,
@@ -365,7 +387,7 @@ def run_video_phase(_phase1_results, project_id: int):
                 "total": len(shot_plans),
                 "pct": pct,
                 "label": plan.label,
-                "model": plan.video_model,
+                "model": video_model,
             })
 
             _max_vid_retries = 3
